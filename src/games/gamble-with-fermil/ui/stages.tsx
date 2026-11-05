@@ -2,9 +2,10 @@ import {useEffect,useMemo,useRef,useState} from 'react'
 import {REDS,SYMBOLS,WHEEL} from '../mechanics/payouts'
 import {sfx} from '../../../utils/sound'
 import {wheelColor,WHEEL_ORDER} from './wheelLayout'
+import type {SimpleGame} from '../mechanics/simple'
 
 /** How long each game's reveal animation takes once the result is known. */
-export const REVEAL_MS:Record<string,number>={slots:1500,roulette:3400,dice:1300,wheel:3200,crash:0}
+export const REVEAL_MS:Record<string,number>={slots:1500,roulette:3400,dice:1300,wheel:3200,crash:0,cups:1400,vault:1800}
 
 const after=(fn:()=>void,ms:number)=>{const t=setTimeout(fn,ms);return()=>clearTimeout(t)}
 
@@ -105,6 +106,50 @@ export function WheelStage({roll}:{roll:number|null}){
  return <div className="wheel-stage">
   <div className="wheel-pointer"/>
   <svg viewBox="0 0 200 200" className="lucky-wheel" style={{transform:`rotate(${angle}deg)`}} aria-hidden="true"><WheelFace/></svg>
+ </div>}
+
+/* ---------- Shell game ---------- */
+export function CupsStage({busy,roll,picked}:{busy:boolean;roll:number|null;picked:number}){
+ const [lifted,setLifted]=useState(false)
+ useEffect(()=>{
+  setLifted(false)
+  if(roll===null)return
+  return after(()=>{setLifted(true);sfx.reelStop()},1000)},[roll])
+ return <div className={`cups-stage${busy&&!lifted?' cups-shuffle':''}`}>
+  {[0,1,2].map(i=><div key={i} className={`cup-slot${i===picked?' cup-picked':''}`}>
+   {lifted&&roll===i&&<span className="cup-coin">🪙</span>}
+   <div className={`cup${lifted&&(roll===i||picked===i)?' cup-up':''}`}/>
+  </div>)}
+ </div>}
+
+/* ---------- Vault cracker ---------- */
+export function VaultStage({roll,locks}:{roll:{opened:number;target:number}|null;locks:number}){
+ const [tried,setTried]=useState(0)
+ useEffect(()=>{
+  setTried(0)
+  if(!roll)return
+  // Locks are tried in order, and the first one that holds ends the attempt.
+  const last=Math.min(roll.opened+1,roll.target);let n=0
+  const t=setInterval(()=>{setTried(++n);sfx.tick();if(n>=last)clearInterval(t)},400)
+  return()=>clearInterval(t)},[roll])
+ return <div className="vault-stage"><div className="vault-door">
+  {Array.from({length:roll?.target??locks},(_,i)=>{
+   const done=roll&&i<tried,open=done&&i<roll.opened
+   return <span key={i} className={`vault-lock${done?' vault-lock-done':''}`}>{open?'🔓':done?'💥':'🔒'}</span>})}
+ </div></div>}
+
+/* ---------- Table-driven games ---------- */
+export function SimpleStage({game,busy,roll}:{game:SimpleGame;busy:boolean;roll:number|null}){
+ const [i,setI]=useState(0),n=game.faces.length
+ useEffect(()=>{
+  if(!busy)return
+  const t=setInterval(()=>{setI(x=>(x+1)%n);sfx.tick()},110)
+  return()=>clearInterval(t)},[busy,n])
+ const face=busy?game.faces[i]!.face:roll!==null?game.faces[roll]?.face:null
+ const [emoji,...text]=(face??'').split(' ')
+ return <div className={`simple-stage${busy?' simple-busy':''}`}>
+  <span key={busy?'spin':String(roll)} className="simple-icon">{face?emoji:game.icon}</span>
+  <p>{face?text.join(' '):game.label}</p>
  </div>}
 
 /* ---------- Crash ---------- */

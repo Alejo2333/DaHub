@@ -1,5 +1,6 @@
 import type Phaser from "phaser";
 import { SYMBOLS, WHEEL } from "../mechanics/payouts";
+import { SIMPLE } from "../mechanics/simple";
 import { wheelColor, WHEEL_ORDER } from "../ui/wheelLayout";
 
 /**
@@ -145,8 +146,8 @@ function room(s: Phaser.Scene) {
     c.shadowColor = "#ff4d6d";
     c.shadowBlur = 16;
     c.fillStyle = "#ffe9b0";
-    c.fillText("GAMBLE WITH FRIENDS", 170, 34);
-    c.fillText("GAMBLE WITH FRIENDS", 170, 34);
+    c.fillText("GAMBLE WITH FERMIL", 170, 34);
+    c.fillText("GAMBLE WITH FERMIL", 170, 34);
   });
   make(s, "sconce", 20, 30, (c) => {
     rr(c, 8, 12, 4, 14, 2, GOLD_DARK);
@@ -615,9 +616,104 @@ function decor(s: Phaser.Scene) {
   });
 }
 
+function originalMachines(scene: Phaser.Scene) {
+  make(scene, "cupstable", 130, 76, (c) => {
+    shadow(c, 65, 70, 60, 6);
+    rr(c, 18, 44, 94, 28, 4, vgrad(c, 44, 72, WOOD, WOOD_DARK), GOLD_DARK);
+    rr(c, 6, 30, 118, 22, 8, vgrad(c, 30, 52, "#127a4a", "#0a4a2d"), GOLD_DARK, 2);
+    for (const x of [35, 65, 95]) {
+      c.beginPath();
+      c.moveTo(x - 12, 44);
+      c.lineTo(x - 8, 14);
+      c.quadraticCurveTo(x, 9, x + 8, 14);
+      c.lineTo(x + 12, 44);
+      c.closePath();
+      c.fillStyle = vgrad(c, 10, 44, "#e8574a", "#8f1d27");
+      c.fill();
+      c.strokeStyle = "#4a0d14";
+      c.lineWidth = 1;
+      c.stroke();
+    }
+  });
+  make(scene, "vaultdoor", 110, 124, (c) => {
+    shadow(c, 55, 118, 50, 6);
+    rr(c, 6, 4, 98, 114, 8, vgrad(c, 4, 118, "#8b9ab5", "#3a455c"), "#1c2333", 2);
+    rr(c, 14, 12, 82, 98, 6, vgrad(c, 12, 110, "#6d7c98", "#47536c"), "#1c2333");
+    disc(c, 55, 60, 28, "#2a3245", GOLD_DARK, 3);
+    disc(c, 55, 60, 7, GOLD, GOLD_DARK);
+    c.strokeStyle = GOLD;
+    c.lineWidth = 3;
+    c.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const a = (i * Math.PI) / 3;
+      c.moveTo(55 - Math.cos(a) * 22, 60 - Math.sin(a) * 22);
+      c.lineTo(55 + Math.cos(a) * 22, 60 + Math.sin(a) * 22);
+    }
+    c.stroke();
+    for (const y of [24, 96]) for (const x of [22, 88]) disc(c, x, y, 3, "#c7d1e3", "#1c2333");
+  });
+  make(scene, "m-shop", 130, 112, (c) => {
+    shadow(c, 65, 106, 60, 5);
+    rr(c, 8, 26, 114, 80, 4, vgrad(c, 26, 106, "#1c1030", "#0a0414"), "#5b3fa8", 2);
+    for (let i = 0; i < 6; i++) {
+      c.fillStyle = i % 2 ? "#2a1a4a" : "#4a2f86";
+      c.fillRect(4 + i * 20.4, 8, 20.4, 22);
+    }
+    c.font = "30px serif";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillStyle = "#fff";
+    c.fillText("🕵️", 65, 60);
+    rr(c, 8, 86, 114, 20, 3, vgrad(c, 86, 106, WOOD, WOOD_DARK), "#5b3fa8");
+    c.font = "13px serif";
+    c.fillText("🧪 🃏 💣", 65, 96);
+  });
+  for (const [id, g] of Object.entries(SIMPLE)) {
+    const hex = `#${g.color.toString(16).padStart(6, "0")}`;
+    const emoji = (c: C, size: number, x: number, y: number) => {
+      c.font = `${size}px serif`;
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillStyle = "#fff";
+      c.fillText(g.icon, x, y);
+    };
+    if (g.style === "cabinet")
+      make(scene, `m-${id}`, 84, 118, (c) => {
+        shadow(c, 42, 112, 38, 5);
+        rr(c, 6, 4, 72, 108, 8, vgrad(c, 4, 112, hex, "#2a1630"), GOLD_DARK, 2);
+        rr(c, 13, 12, 58, 52, 5, "#120620", GOLD);
+        emoji(c, 32, 42, 39);
+        rr(c, 16, 74, 52, 8, 3, "#120620", GOLD_DARK);
+        for (const x of [24, 42, 60]) disc(c, x, 94, 4, GOLD, GOLD_DARK);
+      });
+    else if (g.style === "table")
+      make(scene, `m-${id}`, 170, 78, (c) => {
+        shadow(c, 85, 72, 78, 6);
+        rr(c, 24, 46, 122, 26, 4, vgrad(c, 46, 72, WOOD, WOOD_DARK), GOLD_DARK);
+        rr(c, 6, 14, 158, 42, 14, vgrad(c, 14, 56, hex, "#1b1026"), GOLD_DARK, 2);
+        rr(c, 18, 21, 134, 28, 10, "rgba(10,3,18,.55)");
+        emoji(c, 24, 85, 36);
+      });
+    else
+      make(scene, `m-${id}`, 130, 112, (c) => {
+        shadow(c, 65, 106, 60, 5);
+        rr(c, 8, 26, 114, 80, 4, vgrad(c, 26, 106, "#2a1630", "#120620"), GOLD_DARK, 2);
+        for (let i = 0; i < 6; i++) {
+          c.fillStyle = i % 2 ? "#f6ecd8" : hex;
+          c.fillRect(4 + i * 20.4, 8, 20.4, 22);
+        }
+        c.strokeStyle = GOLD_DARK;
+        c.strokeRect(4, 8, 122, 22);
+        emoji(c, 34, 65, 64);
+        rr(c, 8, 90, 114, 16, 3, vgrad(c, 90, 106, WOOD, WOOD_DARK), GOLD_DARK);
+      });
+  }
+}
+
 export function buildArt(scene: Phaser.Scene) {
   room(scene);
   machines(scene);
+  originalMachines(scene);
   decor(scene);
 }
 

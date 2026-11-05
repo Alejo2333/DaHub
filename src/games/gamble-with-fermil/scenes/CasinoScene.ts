@@ -1,30 +1,29 @@
 import Phaser from 'phaser'
 import type {GameKind,GState} from '../../../types/net'
-import type {Fx} from '../../../stores/app'
+import type {ChatLine,Fx} from '../../../stores/app'
 import {hueOf} from '../../../utils/color'
 import {buildArt,lookFor,makeCharacter,S} from './art'
+import {GAME_LABELS,HOT_WIN} from '../mechanics/floors'
+import {COLLECTOR_HOME,COLLECTOR_TARGET,H,layoutFor,layoutIndex,machinesIn,solidsIn,W,WALL_H,type Layout,type Machine,type Station} from './layouts'
 
-export interface Machine{id:GameKind;label:string;x:number;y:number;c:number;bw:number;bh:number;reach:number;fx:number;fy:number}
-/** x,y is where the object meets the floor. bw,bh is the collision box. fx,fy is the spot to stand when tapped. */
-export const MACHINES:Machine[]=[
- {id:'slots',label:'Slots',x:200,y:216,c:0xffc94a,bw:76,bh:30,reach:72,fx:200,fy:246},
- {id:'roulette',label:'Roulette',x:430,y:208,c:0xff4d6d,bw:170,bh:44,reach:96,fx:430,fy:244},
- {id:'dice',label:'Dice',x:690,y:208,c:0x4dd2ff,bw:160,bh:44,reach:92,fx:690,fy:244},
- {id:'wheel',label:'Lucky Wheel',x:930,y:216,c:0xb07cff,bw:70,bh:26,reach:72,fx:930,fy:246},
- {id:'crash',label:'Crash',x:560,y:610,c:0x5cff9d,bw:112,bh:36,reach:82,fx:560,fy:646}]
+const stationLabel=(id:Station)=>id==='shop'?'Sketchy Shop':GAME_LABELS[id]
+
 export interface Hooks{
  selfId:string;name:string
  blocked:()=>boolean
- onInteract:(id:GameKind)=>void
- onNear:(id:GameKind|null)=>void
+ onInteract:(id:Station)=>void
+ onNear:(id:Station|null)=>void
+ /** Backwards Shoes: this player's walking is reversed. */
+ reversed:()=>boolean
  onMove:(x:number,y:number)=>void
  remotes:()=>{id:string;name:string;x:number;y:number}[]
  state:()=>GState|null
  fx:()=>Fx|null
+ chat:()=>ChatLine[]
 }
 interface Remote{s:Phaser.GameObjects.Sprite;l:Phaser.GameObjects.Text;dir:string;t:number}
-const W=1120,H=760,WALL_H=104,SPEED=190,FLOOR_TINTS=[0xffffff,0xbcd2ff,0xb8ffd2,0xffd2a8,0xe2baff]
-const COLLECTOR_HOME={x:1000,y:690},COLLECTOR_TARGET={x:600,y:470}
+const SPEED=190,FLOOR_TINTS=[0xffffff,0xbcd2ff,0xb8ffd2,0xffd2a8,0xe2baff,0xffc4d6]
+const BUBBLE_MS=5000,BUBBLE_WIDTH=170
 const label=(scene:Phaser.Scene,x:number,y:number,text:string,color:string,size=11)=>
  scene.add.text(x,y,text,{fontFamily:'Outfit,system-ui,sans-serif',fontSize:`${size}px`,fontStyle:'600',color,backgroundColor:'#0009',padding:{x:4,y:1},resolution:3}).setOrigin(.5)
 /** Picks the frame prefix and horizontal flip for a movement direction. */
@@ -38,14 +37,20 @@ class Casino extends Phaser.Scene{
  carpet!:Phaser.GameObjects.TileSprite
  collector!:Phaser.GameObjects.Sprite
  collectorAura!:Phaser.GameObjects.Image
- ball!:Phaser.GameObjects.Arc
+ ball:Phaser.GameObjects.Arc|null=null
+ layout!:Layout
+ machines:Machine[]=[]
  reels:Phaser.GameObjects.TileSprite[]=[]
  flames:Phaser.GameObjects.Image[]=[]
- rings=new Map<GameKind,Phaser.GameObjects.Ellipse>()
- signs=new Map<GameKind,Phaser.GameObjects.Text>()
+ rings=new Map<Station,Phaser.GameObjects.Ellipse>()
+ signs=new Map<Station,Phaser.GameObjects.Text>()
+ covers=new Map<Station,Phaser.GameObjects.Rectangle>()
+ access=''
  remote=new Map<string,Remote>()
- lastSent=0;lx=0;ly=0;dir='d';nearId:GameKind|null=null;fxN=0;floor=1;phase=''
- target:{x:number;y:number;machine?:GameKind;best:number;since:number}|null=null
+ bubbles=new Map<string,Phaser.GameObjects.Container>()
+ chatSeen=0
+ lastSent=0;lx=0;ly=0;dir='d';nearId:Station|null=null;fxN=0;floor=1;phase=''
+ target:{x:number;y:number;machine?:Station;best:number;since:number}|null=null
  constructor(private h:Hooks){super('casino')}
 
  /** Places a texture with its base on the floor at (x,y) and sorts it by depth. */
@@ -58,15 +63,25 @@ class Casino extends Phaser.Scene{
   return g}
 
  create(){
+  // Each floor is a fresh room: the scene restarts on the same instance, so per-room state is reset here.
+  this.reels=[];this.flames=[];this.ball=null;this.access='';this.target=null
+  this.rings.clear();this.signs.clear();this.covers.clear();this.remote.clear();this.bubbles.clear()
+  // Messages sent before this room existed, such as lobby chat, stay in the chat box and don't pop up as bubbles.
+  this.chatSeen=this.h.chat().at(-1)?.id??this.chatSeen
+  const g=this.h.state()
+  this.floor=g?.floor??1;this.phase=g?.phase??'';this.fxN=this.h.fx()?.n??0
+  this.layout=layoutFor(this.floor);this.machines=machinesIn(this.floor)
+  this.nearId=null;this.h.onNear(null)
   buildArt(this)
   this.physics.world.setBounds(0,0,W,H)
   this.solid=this.physics.add.staticGroup()
+  for(const r of solidsIn(this.floor))this.block(r.x,r.y,r.w,r.h)
   this.buildRoom()
   this.buildMachines()
   this.buildDecor()
   const look=lookFor(hueOf(this.h.selfId))
   makeCharacter(this,'me',look)
-  this.me=this.physics.add.sprite(560,370,'me','d0').setScale(1/S)
+  this.me=this.physics.add.sprite(this.layout.spawn[0],this.layout.spawn[1],'me','d0').setScale(1/S)
   ;(this.me.body as Phaser.Physics.Arcade.Body).setSize(28,16).setOffset(14,62)
   this.me.setCollideWorldBounds(true)
   this.physics.add.collider(this.me,this.solid)
@@ -76,7 +91,9 @@ class Casino extends Phaser.Scene{
   this.keys=kb.addKeys('W,A,S,D,E,UP,DOWN,LEFT,RIGHT',false) as Record<string,Phaser.Input.Keyboard.Key>
   this.input.on('pointerdown',(p:Phaser.Input.Pointer)=>this.tap(p.worldX,p.worldY))
   this.setupCamera()
-  this.scale.on('resize',()=>this.setupCamera())
+  const onResize=()=>this.setupCamera()
+  this.scale.on('resize',onResize)
+  this.events.once('shutdown',()=>this.scale.off('resize',onResize))
   this.cameras.main.fadeIn(700,10,3,18)}
 
  setupCamera(){
@@ -86,15 +103,15 @@ class Casino extends Phaser.Scene{
   c.setZoom(z).setBounds(0,-hudGap,W,H+hudGap).startFollow(this.me,true,.1,.1)}
 
  buildRoom(){
-  this.carpet=this.add.tileSprite(0,0,W,H,'carpet').setOrigin(0).setTileScale(1/S).setDepth(0)
-  this.add.tileSprite(520,WALL_H,120,H-WALL_H,'runner').setOrigin(0).setTileScale(1/S).setDepth(0).setAlpha(.8)
-  this.add.rectangle(518,WALL_H,3,H-WALL_H,0xffc94a,.7).setOrigin(0).setDepth(0)
-  this.add.rectangle(639,WALL_H,3,H-WALL_H,0xffc94a,.7).setOrigin(0).setDepth(0)
+  this.carpet=this.add.tileSprite(0,0,W,H,'carpet').setOrigin(0).setTileScale(1/S).setDepth(0).setTint(FLOOR_TINTS[layoutIndex(this.floor)]!)
+  for(const x of this.layout.runners){
+   this.add.tileSprite(x,WALL_H,120,H-WALL_H,'runner').setOrigin(0).setTileScale(1/S).setDepth(0).setAlpha(.8)
+   this.add.rectangle(x-2,WALL_H,3,H-WALL_H,0xffc94a,.7).setOrigin(0).setDepth(0)
+   this.add.rectangle(x+119,WALL_H,3,H-WALL_H,0xffc94a,.7).setOrigin(0).setDepth(0)}
   // Back wall, with side and bottom walls drawn as dark trim
   this.add.tileSprite(0,0,W,WALL_H,'wall').setOrigin(0).setTileScale(1/S).setDepth(2)
   for(const r of[[0,0,36,H],[W-36,0,36,H],[0,H-34,W,34]] as const){
    this.add.rectangle(r[0],r[1],r[2],r[3],0x170723).setOrigin(0).setDepth(2).setStrokeStyle(2,0xa8791c)}
-  this.block(W/2,WALL_H/2,W,WALL_H);this.block(W/2,H-17,W,34);this.block(18,H/2,36,H);this.block(W-18,H/2,36,H)
   // Neon sign and wall lamps
   const sign=this.add.image(560,44,'sign').setScale(1/S).setDepth(3)
   this.light(560,44,0xff4d6d,520,.32,1400)
@@ -108,16 +125,34 @@ class Casino extends Phaser.Scene{
   for(const[x,y]of[[0,H],[W,H]] as const)this.add.image(x,y,'glow').setTint(0x000000).setAlpha(.55).setDisplaySize(620,620).setDepth(1)}
 
  buildMachines(){
-  for(const m of MACHINES){
+  for(const m of this.machines){
    this.light(m.x,m.y-20,m.c,300,.28,1500+Math.random()*700)
    this.rings.set(m.id,this.add.ellipse(m.x,m.y+6,m.bw+50,44,m.c,.0).setStrokeStyle(2,m.c,.9).setDepth(1).setVisible(false))
-   this.block(m.x,m.y-m.bh/2,m.bw,m.bh)
-   this.signs.set(m.id,label(this,m.x,m.y+14,m.label,'#ffe9b0',12).setDepth(m.y+1))}
-  this.buildSlots(MACHINES[0]!)
-  this.buildRoulette(MACHINES[1]!)
-  this.buildDice(MACHINES[2]!)
-  this.buildWheel(MACHINES[3]!)
-  this.buildCrash(MACHINES[4]!)}
+   this.covers.set(m.id,this.add.rectangle(m.x,m.y-m.ch/2+4,m.cw,m.ch,0x0a0312,.74).setDepth(m.y+4).setVisible(false))
+   this.signs.set(m.id,label(this,m.x,m.y+14,stationLabel(m.id),'#ffe9b0',12).setDepth(m.y+5))
+   switch(m.id){
+   case 'slots':this.buildSlots(m);break
+   case 'roulette':this.buildRoulette(m);break
+   case 'dice':this.buildDice(m);break
+   case 'wheel':this.buildWheel(m);break
+   case 'crash':this.buildCrash(m);break
+   case 'cups':this.put('cupstable',m.x,m.y);break
+   case 'vault':this.put('vaultdoor',m.x,m.y);break
+   default:this.put(`m-${m.id}`,m.x,m.y)}}}
+
+ /** A machine in the room can be played unless a power cut has closed it. */
+ isOpen(id:Station){
+  const g=this.h.state()
+  return !!g&&!(g.event?.kind==='cut'&&g.event.machine===id)}
+ /** Shades a closed machine and updates the signs when a room event changes. */
+ updateAccess(g:GState){
+  const key=`${g.event?.kind}|${g.event?.machine}`
+  if(key===this.access)return
+  this.access=key
+  for(const m of this.machines){
+   const on=g.event?.machine===m.id,cut=on&&g.event?.kind==='cut',hot=on&&g.event?.kind==='hot'
+   this.covers.get(m.id)?.setVisible(cut)
+   this.signs.get(m.id)?.setText(cut?'⚡ Closed':hot?`🔥 ${stationLabel(m.id)} +${Math.round((HOT_WIN-1)*100)}%`:stationLabel(m.id))}}
 
  buildSlots(m:Machine){
   const img=this.put('slots',m.x,m.y)
@@ -162,26 +197,29 @@ class Casino extends Phaser.Scene{
   this.tweens.add({targets:[rocket,flame],y:'-=5',duration:1100,yoyo:true,repeat:-1,ease:'Sine.easeInOut'})}
 
  buildDecor(){
-  // Poker tables in the middle of the room, with chairs
-  for(const x of[280,840]){
-   this.put('poker',x,450);this.block(x,428,220,44)
-   this.put('chips',x-70,430).setDepth(451);this.put('chips',x+72,432).setDepth(451)
-   for(const dx of[-76,0,76]){this.put('stool',x+dx,482);this.put('stool',x+dx,398).setDepth(390)}}
-  // Bar with staff and regulars
-  this.put('bar',170,658);this.block(170,634,250,48)
-  for(const x of[100,170,240]){this.put('stool',x,690);this.block(x,684,12,6)}
+  const l=this.layout
+  // Poker tables with chairs
+  for(const[x,y]of l.poker){
+   this.put('poker',x,y)
+   this.put('chips',x-70,y-20).setDepth(y+1);this.put('chips',x+72,y-18).setDepth(y+1)
+   for(const dx of[-76,0,76]){this.put('stool',x+dx,y+32);this.put('stool',x+dx,y-52).setDepth(y-60)}}
   const npc=(key:string,hue:number,x:number,y:number,frame='d0')=>{
    makeCharacter(this,key,lookFor(hue));return this.add.sprite(x,y,key,frame).setScale(1/S).setDepth(y+18)}
-  const barkeep=npc('barkeep',210,170,588)
-  barkeep.setDepth(659)
-  // The counter is redrawn in front of the staff, so they stand behind it with their legs hidden.
-  this.put('bar',170,658).setCrop(0,56*S,260*S,52*S).setDepth(660)
-  this.tweens.add({targets:barkeep,x:{from:90,to:250},duration:6000,yoyo:true,repeat:-1,ease:'Sine.easeInOut',onYoyo:()=>barkeep.setFlipX(true),onRepeat:()=>barkeep.setFlipX(false)})
-  barkeep.setFrame('s1')
-  const regular=npc('regular',40,100,672,'u0')
-  this.tweens.add({targets:regular,y:'-=1.5',duration:900,yoyo:true,repeat:-1})
+  // Bar with staff and regulars
+  if(l.bar){
+   const[bx,by]=l.bar
+   this.put('bar',bx,by)
+   for(const dx of[-70,0,70])this.put('stool',bx+dx,by+32)
+   const barkeep=npc('barkeep',210,bx,by-70)
+   barkeep.setDepth(by+1)
+   // The counter is redrawn in front of the staff, so they stand behind it with their legs hidden.
+   this.put('bar',bx,by).setCrop(0,56*S,260*S,52*S).setDepth(by+2)
+   this.tweens.add({targets:barkeep,x:{from:bx-80,to:bx+80},duration:6000,yoyo:true,repeat:-1,ease:'Sine.easeInOut',onYoyo:()=>barkeep.setFlipX(true),onRepeat:()=>barkeep.setFlipX(false)})
+   barkeep.setFrame('s1')
+   const regular=npc('regular',40,bx-70,by+14,'u0')
+   this.tweens.add({targets:regular,y:'-=1.5',duration:900,yoyo:true,repeat:-1})}
   // Cashier cage and the debt collector who waits behind it
-  this.put('cage',950,660);this.block(950,636,232,48)
+  this.put('cage',950,660)
   npc('cashier',130,950,600).setDepth(661)
   this.put('cage',950,660).setCrop(0,74*S,240*S,44*S).setDepth(662)
   const bars=this.add.graphics().setDepth(662).lineStyle(1.5,0xa8791c)
@@ -190,18 +228,19 @@ class Casino extends Phaser.Scene{
   this.collectorAura=this.add.image(COLLECTOR_HOME.x,COLLECTOR_HOME.y,'glow').setTint(0xff1a3c).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0).setDisplaySize(170,170).setDepth(1)
   this.collector=this.add.sprite(COLLECTOR_HOME.x,COLLECTOR_HOME.y,'collector','u0').setScale(1/S)
   // Pillars and plants
-  for(const[x,y]of[[70,330],[1050,330]] as const){this.put('pillar',x,y);this.block(x,y-9,36,18)}
-  for(const[x,y]of[[62,170],[1058,170],[62,560],[1058,540]] as const){this.put('plant',x,y);this.block(x,y-5,24,10)}
+  for(const[x,y]of l.pillars)this.put('pillar',x,y)
+  for(const[x,y]of l.plants)this.put('plant',x,y)
   // Velvet ropes lead down the runner toward the crash pad
-  const rope=this.add.graphics().setDepth(530)
-  rope.lineStyle(2.5,0xb5173d)
-  for(const side of[496,664]){
-   for(let i=0;i<3;i++){
-    const y0=490+i*44
-    this.put('post',side,y0+10);this.block(side,y0+6,8,6)
-    if(i<2){const curve=new Phaser.Curves.QuadraticBezier(new Phaser.Math.Vector2(side,y0-14),new Phaser.Math.Vector2(side+4,y0+20),new Phaser.Math.Vector2(side,y0+30));curve.draw(rope)}}}
+  if(l.ropes){
+   const rope=this.add.graphics().setDepth(530)
+   rope.lineStyle(2.5,0xb5173d)
+   for(const side of[496,664]){
+    for(let i=0;i<3;i++){
+     const y0=490+i*44
+     this.put('post',side,y0+10)
+     if(i<2){const curve=new Phaser.Curves.QuadraticBezier(new Phaser.Math.Vector2(side,y0-14),new Phaser.Math.Vector2(side+4,y0+20),new Phaser.Math.Vector2(side,y0+30));curve.draw(rope)}}}}
   // Chandeliers hang above everything
-  for(const x of[300,820]){
+  for(const x of l.chandeliers){
    const ch=this.add.image(x,250,'chandelier').setScale(1/S).setOrigin(.5,0).setDepth(8000)
    this.tweens.add({targets:ch,angle:{from:-1.5,to:1.5},duration:2600,yoyo:true,repeat:-1,ease:'Sine.easeInOut'})
    this.light(x,276,0xffe0a0,260,.3,2000).setDepth(7999)}}
@@ -209,14 +248,17 @@ class Casino extends Phaser.Scene{
  /** Pointer and touch: tapping a machine in reach plays it, tapping elsewhere walks there. */
  tap(x:number,y:number){
   if(this.h.blocked())return
-  const m=MACHINES.find(k=>Math.abs(x-k.x)<k.bw/2+10&&y<k.y+24&&y>k.y-130)
+  // In Backwards Shoes, a click sends the player the opposite way.
+  if(this.h.reversed()){this.target={x:2*this.me.x-x,y:2*(this.me.y+16)-y,best:Infinity,since:this.time.now};return}
+  const m=this.machines.find(k=>Math.abs(x-k.x)<k.bw/2+10&&y<k.y+24&&y>k.y-130)
   if(m&&this.nearId===m.id){this.h.onInteract(m.id);return}
   this.target=m?{x:m.fx,y:m.fy,machine:m.id,best:Infinity,since:this.time.now}:{x,y,best:Infinity,since:this.time.now}}
 
  near(){
   let best:Machine|null=null,d=Infinity
   const fy=this.me.y+16
-  for(const m of MACHINES){
+  for(const m of this.machines){
+   if(!this.isOpen(m.id))continue
    const k=Phaser.Math.Distance.Between(this.me.x,fy,m.x,m.y-m.bh/2)
    if(k<m.reach&&k<d){d=k;best=m}}
   return best}
@@ -228,7 +270,8 @@ class Casino extends Phaser.Scene{
    if(k.A!.isDown||k.LEFT!.isDown)dx--
    if(k.D!.isDown||k.RIGHT!.isDown)dx++
    if(k.W!.isDown||k.UP!.isDown)dy--
-   if(k.S!.isDown||k.DOWN!.isDown)dy++}
+   if(k.S!.isDown||k.DOWN!.isDown)dy++
+   if(this.h.reversed()){dx=-dx;dy=-dy}}
   if(dx||dy||blocked)this.target=null
   if(this.target)[dx,dy]=this.walkToTarget(t)
   const v=new Phaser.Math.Vector2(dx,dy).normalize().scale(SPEED)
@@ -252,6 +295,7 @@ class Casino extends Phaser.Scene{
   if(t-this.lastSent>100&&(Math.abs(this.me.x-this.lx)>.5||Math.abs(this.me.y-this.ly)>.5)){
    this.lastSent=t;this.lx=this.me.x;this.ly=this.me.y;this.h.onMove(Math.round(this.me.x),Math.round(this.me.y))}
   this.updateRemotes(t)
+  this.updateBubbles()
   this.updateProps(t,dt)
   this.updateState()}
 
@@ -289,15 +333,39 @@ class Casino extends Phaser.Scene{
    o.s.setDepth(o.s.y+18);o.l.setPosition(o.s.x,o.s.y-26)}
   for(const[id,o]of this.remote)if(!seen.has(id)){o.s.destroy();o.l.destroy();this.remote.delete(id)}}
 
+ /** Shows new chat messages over the sender's head, and keeps every bubble on its player. */
+ updateBubbles(){
+  for(const c of this.h.chat())if(c.id>this.chatSeen){this.chatSeen=c.id;this.showBubble(c.from,c.text)}
+  for(const[id,b]of this.bubbles){
+   const s=id===this.h.selfId?this.me:this.remote.get(id)?.s
+   // Someone in the party who hasn't appeared in the room yet can't show a bubble until they do.
+   b.setVisible(!!s)
+   if(s)b.setPosition(s.x,s.y-36)}}
+ showBubble(id:string,text:string){
+  this.bubbles.get(id)?.destroy()
+  const t=this.add.text(0,-10,text,{fontFamily:'Outfit,system-ui,sans-serif',fontSize:'12px',fontStyle:'600',color:'#1a0f26',align:'center',wordWrap:{width:BUBBLE_WIDTH,useAdvancedWrap:true},resolution:3}).setOrigin(.5,1)
+  const w=t.width+14,h=t.height+8
+  const g=this.add.graphics().fillStyle(0xffffff,.96).fillRoundedRect(-w/2,-6-h,w,h,7).fillTriangle(-5,-6,5,-6,0,0)
+  const b=this.add.container(0,0,[g,t]).setDepth(9100)
+  this.bubbles.set(id,b)
+  this.tweens.add({targets:b,alpha:0,delay:BUBBLE_MS,duration:400,onComplete:()=>{
+   if(this.bubbles.get(id)===b)this.bubbles.delete(id)
+   b.destroy()}})}
+
  updateProps(t:number,dt:number){
   for(const[i,r]of this.reels.entries())r.tilePositionY+=dt*(.03+i*.012)
   for(const f of this.flames)f.setScale(1/S*(.85+Math.random()*.3),1/S*(.8+Math.random()*.5))
-  const c=this.ball.getData('c') as {x:number;y:number},a=-t/360
-  this.ball.setPosition(c.x+Math.cos(a)*12.5,c.y+Math.sin(a)*12.5)}
+  if(this.ball){
+   const c=this.ball.getData('c') as {x:number;y:number},a=-t/360
+   this.ball.setPosition(c.x+Math.cos(a)*12.5,c.y+Math.sin(a)*12.5)}}
 
  updateState(){
   const g=this.h.state()
   if(g){
+   // A new floor means a new room. The shop modal is covering the screen while it swaps.
+   if(layoutIndex(g.floor)!==layoutIndex(this.floor)){this.scene.restart();return}
+   this.floor=g.floor
+   this.updateAccess(g)
    // The collector leaves the cage in the final two minutes and closes in as the clock runs out.
    const p=g.phase==='playing'?1-Phaser.Math.Clamp(g.timeLeft/120,0,1):g.phase==='over'?1:0
    const tx=Phaser.Math.Linear(COLLECTOR_HOME.x,COLLECTOR_TARGET.x,p),ty=Phaser.Math.Linear(COLLECTOR_HOME.y,COLLECTOR_TARGET.y,p)
@@ -306,10 +374,6 @@ class Casino extends Phaser.Scene{
    const moving=Math.abs(mx)+Math.abs(my)>.05
    this.animate(this.collector,moving?mx:0,moving?my:0,this.time.now,moving?facing(mx,my,'u'):'d')
    this.collectorAura.setPosition(this.collector.x,this.collector.y+10).setAlpha(p*.6)
-   if(g.floor!==this.floor){
-    this.floor=g.floor
-    this.carpet.setTint(FLOOR_TINTS[(g.floor-1)%FLOOR_TINTS.length]!)
-    this.cameras.main.flash(500,255,220,120)}
    if(g.phase!==this.phase){
     if(g.phase==='over'){this.cameras.main.shake(600,.012);this.cameras.main.flash(700,180,10,30)}
     this.phase=g.phase}}
@@ -318,7 +382,7 @@ class Casino extends Phaser.Scene{
 
  /** Coins and floating numbers at the machine where a bet landed. Every player sees everyone's results. */
  playFx(fx:Fx){
-  const {result:r}=fx,m=MACHINES.find(k=>k.id===r.game)
+  const {result:r}=fx,m=this.machines.find(k=>k.id===r.game)
   if(!m)return
   const x=m.x,y=m.y-60
   if(r.net>0){

@@ -1,7 +1,7 @@
 import type { GameModule } from "../../types/game";
-import luckyDebt from "../lucky-debt";
+import gambleWithFermil from "../gamble-with-fermil";
 /** Register future games here. The home page, search and game pages are built from this list. */
-export const games: GameModule[] = [luckyDebt];
+export const games: GameModule[] = [gambleWithFermil];
 export const getGame = (id: string) => games.find((g) => g.id === id);
 /** Placeholder tiles so the library doesn't look empty. Delete an entry when a real game takes its place. */
 export const comingSoon: { category: string; icon: string }[] = [

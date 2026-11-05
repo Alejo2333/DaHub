@@ -13,7 +13,8 @@ vi.mock('trystero/nostr',()=>({
    send:async(d:unknown,o?:{target?:string})=>{net.sent.push([d,o?.target])},
    set onMessage(cb:(d:unknown,c:{peerId:string})=>void){net.recv=(d,from)=>cb(d,{peerId:from})}}),
   onPeerJoin:null,onPeerLeave:null,leave:async()=>{}}}}))
-import {buyUpgrade,cashOut,connect,leave,newId,payDebt,sendBet,startGame,takeLoan} from './party'
+import {buyItem,buyUpgrade,cashOut,castVote,connect,leave,MAX_CHAT,newId,payDebt,sendBet,sendChat,startGame,takeLoan} from './party'
+import {FIRST_FLOOR_DEBT,START_CHIPS} from '../games/gamble-with-fermil/mechanics/odds'
 
 const peers:Player[]=[{id:'H',name:'Host',ready:true},{id:'SELF',name:'Me',ready:false}]
 const snapshot=(hostId:string,v:number,game:GState|null=null)=>({t:'STATE_SNAPSHOT',players:peers,hostId,status:'lobby',game,sid:'',v})
@@ -99,16 +100,16 @@ describe('crash flights',()=>{
   const live=vi.fn(),id=newId()
   const p=sendBet({id,game:'crash',wager:100,choice:0},live)
   expect(live).toHaveBeenCalledOnce()
-  expect(hostGame().balance).toBe(900)
+  expect(hostGame().balance).toBe(START_CHIPS-100)
   cashOut(id)
   const r=await p
-  expect(r.game).toBe('crash');expect(hostGame().balance).toBe(900+r.payout)})
+  expect(r.game).toBe('crash');expect(hostGame().balance).toBe(START_CHIPS-100+r.payout)})
  it('crashes by itself if nobody cashes out',async()=>{
   startHosting()
   const p=sendBet({id:newId(),game:'crash',wager:100,choice:0})
   await vi.advanceTimersByTimeAsync(35000)
   const r=await p
-  expect(r.net).toBe(-100);expect(hostGame().balance).toBe(900)})
+  expect(r.net).toBe(-100);expect(hostGame().balance).toBe(START_CHIPS-100)})
  it('a flight still in the air is settled when the round runs out',async()=>{
   startHosting()
   await vi.advanceTimersByTimeAsync(299000) // one second left on the clock
@@ -134,11 +135,62 @@ describe('host actions',()=>{
   startHosting()
   for(const m of[null,42,'x',[],{t:'BET_REQUEST',sid:'',v:0},{t:'PLAYER_JOIN',sid:'',v:0},{t:'NOPE',sid:'',v:0}])net.recv!(m,'P')
   expect(useApp.getState().players).toHaveLength(1)})
- it('the loan shark and debt payment reach the wallet',()=>{
+ it('the marker and debt payment reach the wallet',()=>{
   startHosting()
-  takeLoan();expect(hostGame().balance).toBe(1300);expect(hostGame().quota).toBe(2500)
+  takeLoan();expect(hostGame().balance).toBe(START_CHIPS+300);expect(hostGame().quota).toBe(FIRST_FLOOR_DEBT+500);expect(hostGame().markers).toBe(1)
   payDebt();expect(hostGame().floor).toBe(1)
   buyUpgrade('time');expect(hostGame().upgrades.time).toBeUndefined()})})
+
+describe('party chat',()=>{
+ const lines=()=>useApp.getState().chat
+ const withFriend=()=>{connect('host','Me');useApp.setState(s=>({players:[...s.players,{id:'P',name:'Pal',ready:true}]}))}
+ const said=(text:string,from='P')=>net.recv!({t:'CHAT_SEND',text,sid:'',v:0},from)
+ it('the host posts its own messages in the lobby',()=>{
+  connect('host','Me');sendChat('  hello  ')
+  expect(lines()).toMatchObject([{from:'SELF',name:'Me',text:'hello'}])})
+ it('the host broadcasts a member\'s message under their real name',()=>{
+  withFriend();said('hi all')
+  expect(lines()).toMatchObject([{from:'P',name:'Pal',text:'hi all'}])
+  expect(net.sent.at(-1)![0]).toMatchObject({t:'CHAT',from:'P',text:'hi all'})
+  expect(net.sent.at(-1)![1]).toBeUndefined()})
+ it('a guest sends to the host and shows nothing until the host answers',()=>{
+  connect('join','Me','ABC');net.recv!(snapshot('H',1),'H')
+  sendChat('hello')
+  expect(net.sent.at(-1)).toMatchObject([{t:'CHAT_SEND',text:'hello'},'H'])
+  expect(lines()).toEqual([])
+  net.recv!({t:'CHAT',from:'SELF',text:'hello',sid:'',v:2},'H')
+  expect(lines()).toMatchObject([{from:'SELF',name:'Me',text:'hello'}])})
+ it('works during a game, and the chat survives starting it',()=>{
+  withFriend();said('before');startGame();vi.advanceTimersByTime(1000);said('during')
+  expect(lines().map(l=>l.text)).toEqual(['before','during'])})
+ it('ignores outsiders',()=>{
+  withFriend();said('spam','STRANGER')
+  expect(lines()).toEqual([])})
+ it('a peer can\'t speak for someone else',()=>{
+  connect('join','Me','ABC');net.recv!(snapshot('H',1),'H')
+  net.recv!({t:'CHAT',from:'H',text:'send me your chips',sid:'',v:2},'X')
+  expect(lines()).toEqual([])})
+ it('limits how fast each player can post',()=>{
+  withFriend();said('one');said('two')
+  expect(lines()).toHaveLength(1)
+  sendChat('mine');expect(lines()).toHaveLength(2)
+  vi.advanceTimersByTime(500);said('three');expect(lines()).toHaveLength(3)})
+ it('cleans messages: blank ones vanish, long ones are cut, and emoji stay whole',()=>{
+  withFriend();said('   ')
+  expect(lines()).toEqual([])
+  said('😀'.repeat(MAX_CHAT+50))
+  expect([...lines()[0]!.text]).toHaveLength(MAX_CHAT);expect(lines()[0]!.text.endsWith('😀')).toBe(true)
+  vi.advanceTimersByTime(500);said('a\nb\u0007c')
+  expect(lines()[1]!.text).toBe('a b c')})
+ it('every message reaches validation in a shape it accepts, and bad shapes are refused',()=>{
+  expect(parseEnv({t:'CHAT_SEND',text:'😀'.repeat(MAX_CHAT),sid:'',v:0})).toBeTruthy()
+  expect(parseEnv({t:'CHAT',from:'P',text:'😀'.repeat(MAX_CHAT),sid:'',v:1})).toBeTruthy()
+  expect(parseEnv({t:'CHAT_SEND',text:5,sid:'',v:0})).toBeNull()
+  expect(parseEnv({t:'CHAT_SEND',text:'x'.repeat(5000),sid:'',v:0})).toBeNull()
+  expect(parseEnv({t:'CHAT',text:'no sender',sid:'',v:1})).toBeNull()})
+ it('a new party starts with an empty chat',()=>{
+  connect('host','Me');sendChat('old');connect('host','Me')
+  expect(lines()).toEqual([])})})
 
 describe('parseEnv',()=>{
  it('accepts good messages and rejects bad shapes',()=>{
@@ -150,3 +202,50 @@ describe('parseEnv',()=>{
   expect(parseEnv({t:'WALLET_UPDATE',game:{phase:'playing',balance:null},sid:'s',v:0})).toBeNull()
   expect(parseEnv({t:'MACHINE_INTERACT',machine:'x'.repeat(5000),sid:'s',v:0})).toBeNull()
   expect(parseEnv({t:'PLAYER_JOIN',name:'x'.repeat(5000),sid:'s',v:0})).toBeNull()})})
+
+describe('team votes',()=>{
+ it('accepts VOTE_CAST and rejects bad shapes',()=>{
+  expect(parseEnv({t:'VOTE_CAST',yes:true,sid:'s',v:0})).toBeTruthy()
+  expect(parseEnv({t:'VOTE_CAST',yes:'yes',sid:'s',v:0})).toBeNull()})
+ it('rejects game state with a malformed vote or event',()=>{
+  startHosting()
+  const g=hostGame()
+  expect(parseEnv({t:'WALLET_UPDATE',game:g,sid:'s',v:0})).toBeTruthy()
+  expect(parseEnv({t:'WALLET_UPDATE',game:{...g,vote:{kind:'nope',until:1,yes:[],no:[]}},sid:'s',v:0})).toBeNull()
+  expect(parseEnv({t:'WALLET_UPDATE',game:{...g,event:{kind:'cut',machine:'poker',until:1}},sid:'s',v:0})).toBeNull()
+  expect(parseEnv({t:'WALLET_UPDATE',game:{...g,machines:['poker']},sid:'s',v:0})).toBeNull()})
+ it('ignores a vote when none is open, and from outsiders',()=>{
+  startHosting()
+  const sid=useApp.getState().sid,before=hostGame()
+  castVote(true)
+  net.recv!({t:'VOTE_CAST',yes:true,sid,v:0},'STRANGER')
+  expect(hostGame()).toEqual(before)})})
+
+describe('sketchy shop',()=>{
+ const withFriend=()=>{startHosting();useApp.setState(s=>({players:[...s.players,{id:'P',name:'Pal',ready:true}]}));return useApp.getState().sid}
+ it('accepts SHOP_BUY and rejects bad shapes',()=>{
+  expect(parseEnv({t:'SHOP_BUY',id:'charm',sid:'s',v:0})).toBeTruthy()
+  expect(parseEnv({t:'SHOP_BUY',id:'stink',target:'P',sid:'s',v:0})).toBeTruthy()
+  expect(parseEnv({t:'SHOP_BUY',id:5,sid:'s',v:0})).toBeNull()
+  expect(parseEnv({t:'SHOP_BUY',id:'stink',target:7,sid:'s',v:0})).toBeNull()})
+ it('rejects game state with a malformed prank',()=>{
+  startHosting()
+  const g=hostGame()
+  expect(parseEnv({t:'WALLET_UPDATE',game:{...g,pranks:[{kind:'nope',target:'a',until:null}]},sid:'s',v:0})).toBeNull()
+  expect(parseEnv({t:'WALLET_UPDATE',game:{...g,luck:'many'},sid:'s',v:0})).toBeNull()})
+ it('a friend can prank me: the bet is refused and the buyer stays anonymous',async()=>{
+  const sid=withFriend()
+  net.recv!({t:'SHOP_BUY',id:'cuffs',target:'SELF',sid,v:0},'P')
+  expect(hostGame().pranks).toMatchObject([{kind:'cuffs',target:'SELF'}])
+  const line=useApp.getState().feed[0]!.text
+  expect(line).toMatch(/Someone slipped Me a Handcuffs/);expect(line).not.toMatch(/Pal/)
+  await expect(sendBet({id:newId(),game:'wheel',wager:50,choice:0})).rejects.toThrow(/handcuffs/)})
+ it('names the buyer of a helper item',()=>{
+  withFriend();buyItem('charm')
+  expect(hostGame().luck).toBe(3);expect(useApp.getState().feed[0]!.text).toMatch(/Me bought Rabbit's Foot/)})
+ it('cannot prank someone who is not in the party, or buy as an outsider',()=>{
+  const sid=withFriend(),before=hostGame().balance
+  buyItem('stink','GHOST')
+  net.recv!({t:'SHOP_BUY',id:'charm',sid,v:0},'STRANGER')
+  expect(hostGame().balance).toBe(before);expect(hostGame().pranks).toEqual([])
+  expect(useApp.getState().toast).toMatch(/not here/)})})

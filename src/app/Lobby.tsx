@@ -3,6 +3,7 @@ import {isHost,MAX_PLAYERS,selfId,setReady,startGame} from '../multiplayer/party
 import type {GameModule} from '../types/game'
 import type {Player} from '../types/net'
 import Avatar from './Avatar'
+import ChatBox from './ChatBox'
 
 export default function Lobby({game,code,players,hostId,onExit}:{game:GameModule;code:string;players:Player[];hostId:string;onExit:()=>void}){
  const [copied,setCopied]=useState(false)
@@ -16,6 +17,7 @@ export default function Lobby({game,code,players,hostId,onExit}:{game:GameModule
    <button onClick={onExit} className="btn-ghost">Leave</button>
   </header>
   <div className="lobby-body">
+   <div className="lobby-main">
    <div className="lobby-players">
     <h2 className="section-title">Players {players.length}/{MAX_PLAYERS}</h2>
     <ul className="slot-grid">
@@ -30,6 +32,8 @@ export default function Lobby({game,code,players,hostId,onExit}:{game:GameModule
     {!host&&me&&<button onClick={()=>setReady(!me.ready)} className={me.ready?'btn-ghost btn-wide':'btn-primary'}>{me.ready?'Not ready yet':"I'm ready"}</button>}
     {!host&&!me&&<p role="status" className="hint">Joining the party…</p>}
     {host&&<button onClick={startGame} disabled={!allReady} className="btn-primary">{allReady?'Start game':`Waiting for ${waitingOn} ${waitingOn===1?'player':'players'}`}</button>}
+   </div>
+   <ChatBox variant="lobby"/>
    </div>
    <aside className="lobby-side">
     <p className="eyebrow">Room code</p>
