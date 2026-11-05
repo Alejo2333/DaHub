@@ -4,13 +4,15 @@ import {parseEnv} from './validate'
 import type {GState,Player} from '../types/net'
 
 // A fake network: `recv` delivers a message as if it came from a peer, `sent` records what we sent.
-const net=vi.hoisted(()=>({recv:null as null|((d:unknown,from:string)=>void),sent:[] as [any,string?][],relayOpen:true}))
+const net=vi.hoisted(()=>({recv:null as null|((d:unknown,from:string)=>void),sent:[] as [any,string?][],relayOpen:true,config:null as any}))
 vi.mock('trystero/nostr',()=>({
  selfId:'SELF',
  getRelaySockets:()=>({relay:{readyState:net.relayOpen?1:3}}),
- joinRoom:()=>({
-  makeAction:()=>[async(d:unknown,to?:string)=>{net.sent.push([d,to])},(cb:(d:unknown,from:string)=>void)=>{net.recv=cb}],
-  onPeerJoin(){},onPeerLeave(){},leave:async()=>{}})}))
+ joinRoom:(config:unknown)=>{net.config=config;return{
+  makeAction:()=>({
+   send:async(d:unknown,o?:{target?:string})=>{net.sent.push([d,o?.target])},
+   set onMessage(cb:(d:unknown,c:{peerId:string})=>void){net.recv=(d,from)=>cb(d,{peerId:from})}}),
+  onPeerJoin:null,onPeerLeave:null,leave:async()=>{}}}}))
 import {buyUpgrade,cashOut,connect,leave,newId,payDebt,sendBet,startGame,takeLoan} from './party'
 
 const peers:Player[]=[{id:'H',name:'Host',ready:true},{id:'SELF',name:'Me',ready:false}]
@@ -21,6 +23,9 @@ beforeEach(()=>{net.sent=[];net.relayOpen=true;vi.useFakeTimers()})
 afterEach(()=>{leave();vi.useRealTimers()})
 
 describe('joining a party',()=>{
+ it('signals through the pinned relays',()=>{
+  connect('join','Me','ABC')
+  expect(net.config.relayConfig.urls).toContain('wss://nos.lol')})
  it('keeps waiting for a host until the 30s timeout',()=>{
   connect('join','Me','ABC')
   vi.advanceTimersByTime(29999)
