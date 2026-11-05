@@ -1,0 +1,9 @@
+node_modules
+dist
+.vercel
+*.log
+
+# Local environment files. VITE_* values still end up in the public bundle.
+.env
+.env.*
+!.env.example
