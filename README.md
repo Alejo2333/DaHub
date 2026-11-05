@@ -7,10 +7,12 @@ React + TypeScript + Vite, Phaser 3, Trystero (WebRTC), Tailwind v4, Zustand. No
 Deploy: import the repo in Vercel (Framework: Vite). `vercel.json` rewrites every path to `index.html`, so `/party/ABCDE` survives refresh.
 
 ## Environment variables (all optional)
-`VITE_APP_ID` signalling namespace. `VITE_TURN_URL`, `VITE_TURN_USER`, `VITE_TURN_PASS` add a TURN relay.
+`VITE_APP_ID` signalling namespace. `VITE_TURN_URL` (comma-separated URLs), `VITE_TURN_USER`, `VITE_TURN_PASS` add a TURN relay. `VITE_*` values are built into the bundle, so redeploy after changing them.
 
 ## Networking and TURN
-Trystero uses public signalling (Nostr relays by default) and then direct WebRTC. Symmetric NATs, corporate firewalls and some mobile carriers block direct connections; the join screen reports "No host answered" after 12s. Fix by supplying a TURN server (coturn, or a hosted one) through the variables above.
+Trystero uses public Nostr relays for signalling and then direct WebRTC. `RELAY_URLS` in `multiplayer/room.ts` pins relays tested to deliver Trystero's events, because many public relays are down or reject them. Re-test and update the list if joining starts failing with a "matchmaking servers" error, and remember that peers must share a relay.
+
+Symmetric NATs, corporate firewalls, some mobile carriers and some home routers (even between devices on the same Wi-Fi) block direct connections; the join screen reports "No host answered" after 30s. Fix by supplying a TURN server (coturn, or a hosted one) through the variables above. Include the provider's TCP/TLS URLs, since those get through strict firewalls. TURN credentials are visible in the public bundle, so use a low-quota account.
 
 ## Architecture
 - `multiplayer/room.ts` typed Trystero wrapper. `multiplayer/party.ts` roster, ready, start, return-to-lobby, session ids, versions, host-authoritative game messages.

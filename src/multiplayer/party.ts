@@ -1,4 +1,4 @@
-import {openRoom,selfId,type Room} from './room'
+import {openRoom,relayConnected,selfId,type Room} from './room'
 import {parseEnv} from './validate'
 import {positions,useApp} from '../stores/app'
 import {Ledger} from '../games/lucky-debt/mechanics/engine'
@@ -6,7 +6,7 @@ import {crashMs} from '../games/lucky-debt/mechanics/payouts'
 import type {BetReq,BetResult,Env,GameKind,Msg,Tone} from '../types/net'
 export {selfId}
 export const MAX_PLAYERS=6
-const BET_TIMEOUT=8000,FLIGHT_TIMEOUT=60000
+const BET_TIMEOUT=8000,FLIGHT_TIMEOUT=60000,JOIN_TIMEOUT=30000
 interface Pending{resolve:(r:BetResult)=>void;reject:(e:Error)=>void;onLive?:()=>void;timer:ReturnType<typeof setTimeout>}
 let room:Room|null=null,v=0,lastV=-1,ledger:Ledger|null=null,feedId=0,fxN=0
 let ticker:ReturnType<typeof setInterval>|undefined,jt:ReturnType<typeof setTimeout>|undefined
@@ -52,7 +52,9 @@ export function connect(role:'host'|'join',name:string,code?:string){
  try{room=openRoom(c,onRecv,id=>{if(!isHost())room?.send({t:'PLAYER_JOIN',name:st().name,sid:'',v:0},id)},onLeave)}
  catch(e){return fail('Could not open the room: '+String(e))}
  if(role==='host')set({players:[{id:selfId,name,ready:true}],status:'lobby'})
- else jt=setTimeout(()=>{if(st().status==='connecting')fail('No host answered. Check the room code. If it is correct, a strict NAT/firewall may be blocking WebRTC (see README: TURN).')},12000)}
+ else jt=setTimeout(()=>{if(st().status==='connecting')fail(relayConnected()
+  ?'No host answered. Check the room code and that the host still has the party page open (refreshing it ends the party). If both are right, your network may be blocking the connection.'
+  :'Could not reach the matchmaking servers. Check your connection or disable any VPN or ad blocker.')},JOIN_TIMEOUT)}
 export const leave=()=>{cleanup();set({status:'idle',players:[],hostId:'',game:null,sid:'',code:'',hold:0})}
 function onLeave(id:string){
  delete positions[id]

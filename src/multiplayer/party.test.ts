@@ -4,9 +4,10 @@ import {parseEnv} from './validate'
 import type {GState,Player} from '../types/net'
 
 // A fake network: `recv` delivers a message as if it came from a peer, `sent` records what we sent.
-const net=vi.hoisted(()=>({recv:null as null|((d:unknown,from:string)=>void),sent:[] as [any,string?][]}))
-vi.mock('trystero',()=>({
+const net=vi.hoisted(()=>({recv:null as null|((d:unknown,from:string)=>void),sent:[] as [any,string?][],relayOpen:true}))
+vi.mock('trystero/nostr',()=>({
  selfId:'SELF',
+ getRelaySockets:()=>({relay:{readyState:net.relayOpen?1:3}}),
  joinRoom:()=>({
   makeAction:()=>[async(d:unknown,to?:string)=>{net.sent.push([d,to])},(cb:(d:unknown,from:string)=>void)=>{net.recv=cb}],
   onPeerJoin(){},onPeerLeave(){},leave:async()=>{}})}))
@@ -16,10 +17,22 @@ const peers:Player[]=[{id:'H',name:'Host',ready:true},{id:'SELF',name:'Me',ready
 const snapshot=(hostId:string,v:number,game:GState|null=null)=>({t:'STATE_SNAPSHOT',players:peers,hostId,status:'lobby',game,sid:'',v})
 const hostGame=()=>useApp.getState().game!
 const startHosting=()=>{connect('host','Me');startGame()}
-beforeEach(()=>{net.sent=[];vi.useFakeTimers()})
+beforeEach(()=>{net.sent=[];net.relayOpen=true;vi.useFakeTimers()})
 afterEach(()=>{leave();vi.useRealTimers()})
 
 describe('joining a party',()=>{
+ it('keeps waiting for a host until the 30s timeout',()=>{
+  connect('join','Me','ABC')
+  vi.advanceTimersByTime(29999)
+  expect(useApp.getState().status).toBe('connecting')
+  vi.advanceTimersByTime(1)
+  expect(useApp.getState().status).toBe('error')
+  expect(useApp.getState().error).toMatch(/No host answered/)})
+ it('says so when no signalling relay could be reached',()=>{
+  net.relayOpen=false
+  connect('join','Me','ABC')
+  vi.advanceTimersByTime(30000)
+  expect(useApp.getState().error).toMatch(/matchmaking servers/)})
  it('shows the "party full" error sent by the host',()=>{
   connect('join','Me','ABC')
   net.recv!({t:'ERROR',msg:'This party is full (6/6).',sid:'',v:0},'H')
