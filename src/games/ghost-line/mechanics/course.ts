@@ -18,14 +18,11 @@ export interface Checkpoint {
   x: number;
   y: number;
 }
-/** The tricks in a chain, in order. */
-export type ChainMove = "butterfly" | "aerial" | "gainer" | "webster" | "corkscrew";
-/** A long flat stretch with nothing in the way, for chaining three tricks. */
+/** A long flat stretch with nothing in the way, for a tumbling pass. */
 export interface Mat {
   x0: number;
   x1: number;
   y: number;
-  chain: [ChainMove, ChainMove, ChainMove];
 }
 export interface Course {
   platforms: Platform[];
@@ -59,14 +56,8 @@ export const PERFECT: Record<Exclude<ZoneKind, "mat">, [number, number]> = {
 };
 /** How far onto a mat a press starts its chain. */
 export const MAT_ZONE = 120;
-/** Long enough for three tricks at top speed, with room to spare. */
-const MAT_LENGTH = 1450;
-const CHAINS: Mat["chain"][] = [
-  ["butterfly", "gainer", "corkscrew"],
-  ["aerial", "webster", "corkscrew"],
-  ["butterfly", "webster", "gainer"],
-  ["aerial", "gainer", "corkscrew"],
-];
+/** Long enough for the whole tumbling pass at top speed, with room to spare. */
+const MAT_LENGTH = 1650;
 /** Blocks at least this wide get a Kong Vault. Narrower ones get a Dash Vault. */
 export const KONG_MIN_W = 55;
 
@@ -168,12 +159,7 @@ export function buildCourse(seed: number): Course {
     switch (kind) {
       case "mat":
         matsAt.shift();
-        mats.push({
-          x0: x,
-          x1: x + MAT_LENGTH,
-          y,
-          chain: CHAINS[Math.floor(rng() * CHAINS.length)]!,
-        });
+        mats.push({ x0: x, x1: x + MAT_LENGTH, y });
         x += MAT_LENGTH;
         break;
       case "gap":

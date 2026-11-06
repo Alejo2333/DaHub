@@ -145,6 +145,7 @@ class Run extends Phaser.Scene{
   if(r.lastTrick&&r.lastTrick.n!==this.trickSeen){
    this.trickSeen=r.lastTrick.n
    this.popTrick(TRICK_NAMES[r.lastTrick.name],r.lastTrick.combo);sfx.cash();this.dust(r.x,r.y,8,.9)}
+  if(r.move==='tumble'&&r.t<STEP*1.5)sfx.buy()
   if(r.move===this.lastMove){if(r.move==='slide'&&r.vx>120&&Math.random()<.4)this.dust(r.x+6,r.y,1,.5);return}
   this.lastMove=r.move
   switch(r.move){
@@ -154,7 +155,7 @@ class Run extends Phaser.Scene{
    case'roll':sfx.reelStop();this.dust(r.x,r.y,14,1.2);this.cameras.main.shake(140,.006);break
    case'slide':sfx.tick();this.dust(r.x,r.y,6,.8);break
    case'vault':case'climb':sfx.click();break
-   case'kong':case'dashvault':case'flip':case'backflip':case'doubleflip':case'swallow':case'tripleswallow':case'handspring':case'butterfly':case'aerial':case'gainer':case'webster':case'corkscrew':case'wallrun':case'powerslide':sfx.buy();break
+   case'kong':case'dashvault':case'flip':case'backflip':case'doubleflip':case'swallow':case'tripleswallow':case'handspring':case'cartwheel':case'tumble':case'backtuck':case'wallrun':case'powerslide':sfx.buy();break
    case'stumble':sfx.lose();this.dust(r.x,r.y,8,1);this.cameras.main.shake(160,.005);break
    case'bonk':sfx.lose();this.cameras.main.shake(220,.01);break
    case'respawn':sfx.alarm();this.cameras.main.flash(180,255,255,255);break}}

@@ -137,23 +137,24 @@ describe('obstacles',()=>{
 
 describe('tricking mats',()=>{
  const J={jump:true,slide:false}
- const mat:Course={...flat,mats:[{x0:500,x1:1850,y:0,chain:['butterfly','gainer','corkscrew']}]}
+ const mat:Course={...flat,mats:[{x0:500,x1:2150,y:0}]}
  const onMat=()=>{const r=running(mat,510);r.vx=340;return r}
- const play=(r:Runner)=>{const seen:string[]=[];let n=0;while(r.chain&&n++<300){if(seen.at(-1)!==r.move)seen.push(r.move);step(r,mat,none)};return seen}
  it('a press on the mat starts the chain',()=>{
-  const r=onMat();step(r,mat,J);expect(r.move).toBe('butterfly');expect(r.chain).toBeTruthy()})
- it('one press plays all three tricks in order, and pays a Tricking Combo with a huge burst',()=>{
-  const r=onMat();step(r,mat,J)
-  expect(play(r)).toEqual(['butterfly','gainer','corkscrew'])
+  const r=onMat();step(r,mat,J);expect(r.move).toBe('cartwheel');expect(r.chain).toBeTruthy()})
+ it('one press plays the whole pass in order: Cartwheel, two Back Handsprings, Back Flip, then the combo',()=>{
+  const r=onMat(),names:string[]=[];step(r,mat,J);let n=0
+  while(r.chain&&n++<400){const a=r.tricks;step(r,mat,none);if(r.tricks!==a)names.push(r.lastTrick!.name)}
+  // The last step pays the Back Flip and the combo together.
+  expect(names.slice(0,3)).toEqual(['cartwheel','tumble','tumble']);expect(r.tricks).toBe(5)
   expect(r.lastTrick?.name).toBe('trickcombo');expect(r.chain).toBeNull();expect(r.move).toBe('run')
-  expect(r.combo).toBe(4);expect(r.boost).toBeGreaterThan(190);expect(r.y).toBe(0);expect(r.x).toBeLessThan(1850)})
+  expect(r.combo).toBe(5);expect(r.boost).toBeGreaterThan(190);expect(r.y).toBe(0);expect(r.x).toBeLessThan(2150)})
  it('each trick flows straight into the next, with no run between them',()=>{
   const r=onMat();step(r,mat,J);let n=0
-  while(r.chain&&n++<300){expect(r.move).not.toBe('run');step(r,mat,none)}})
+  while(r.chain&&n++<400){expect(r.move).not.toBe('run');step(r,mat,none)}})
  it('pressing again during the chain changes nothing',()=>{
   const r=onMat();step(r,mat,J);const seen:string[]=[];let n=0
-  while(r.chain&&n++<300){if(seen.at(-1)!==r.move)seen.push(r.move);step(r,mat,J)}
-  expect(seen).toEqual(['butterfly','gainer','corkscrew']);expect(r.lastTrick?.name).toBe('trickcombo')})
+  while(r.chain&&n++<400){if(seen.at(-1)!==r.move)seen.push(r.move);step(r,mat,J)}
+  expect(seen).toEqual(['cartwheel','tumble','backtuck']);expect(r.lastTrick?.name).toBe('trickcombo')})
  it('only the start of the mat begins a chain',()=>{
   const r=running(mat,800);r.vx=340;step(r,mat,J);expect(r.move).toBe('jump')})
  it('three tricks at top speed fit on every mat, with no obstacles on it',()=>{
@@ -286,6 +287,6 @@ describe('tricks',()=>{
    totalClean+=clean.ms;totalBest+=best.ms
   }
   expect(totalBest).toBeLessThan(totalClean*.92)
-  for(const m of['kong','dashvault','flip','backflip','doubleflip','swallow','tripleswallow','butterfly','aerial','gainer','webster','corkscrew','handspring','wallrun','powerslide'])expect(seen,m).toContain(m)})
+  for(const m of['kong','dashvault','flip','backflip','doubleflip','swallow','tripleswallow','cartwheel','tumble','backtuck','handspring','wallrun','powerslide'])expect(seen,m).toContain(m)})
  it('tricks at top speed can still finish every course',()=>{
   for(let seed=1;seed<=20;seed++){const c=buildCourse(seed*613),{r}=bot(c,new Set(),true);expect(r.done,`seed ${seed}`).toBe(true);expect(r.falls,`seed ${seed}`).toBeLessThan(4)}})})

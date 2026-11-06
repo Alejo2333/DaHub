@@ -306,7 +306,11 @@ export const SWALLOW: Key[] = [
  * Back Handspring: turning to face backward, the body arches over and the arms reach overhead,
  * hands touch down upside down, and the legs snap round to land.
  */
-export function handspringPose(p: number, contact: number): Pose {
+export function handspringPose(
+  p: number,
+  contact: number,
+  opts?: { split: number; back: number },
+): Pose {
   // A half turn by the time the hands touch down, then the other half.
   const q = p < contact ? (p / contact) * 0.5 : 0.5 + ((p - contact) / (1 - contact)) * 0.5,
     turn = q * q * (3 - 2 * q),
@@ -321,13 +325,13 @@ export function handspringPose(p: number, contact: number): Pose {
     // The arch: legs trail a little behind the line of the body.
     arch = 8 * up,
     foot = (side: number): [number, number, number] => {
-      const [x, y] = rot(side * 4 - arch, 40 - 3 * up);
+      const [x, y] = rot(side * (4 + (opts?.split ?? 0) * up) - arch, 40 - 3 * up);
       return [x, py + y, deg];
     },
     hand = (side: number): [number, number] =>
       rot(side * 3, 18 - 44 * up);
   // Facing backward from just after takeoff to just before landing, while the legs are straight.
-  const back = p > 0.1 && p < 0.92 ? 1 : 0;
+  const back = opts ? opts.back : p > 0.1 && p < 0.92 ? 1 : 0;
   return P(0, py, deg, 16 * up, foot(1), foot(-1), hand(1), hand(-1), 0, 0, back);
 }
 /** Triple Swallow: three fast somersaults, then opening out into the swan arch before reaching for the roll. */
@@ -343,42 +347,15 @@ export function tripleSwallowPose(p: number): Pose {
   dive.bp += 360 * TURNS;
   return mix(spin, dive, k);
 }
-/**
- * A flip with the body open rather than tucked: `split` spreads the legs, and `arms` pulls them to the chest.
- * Used for the tricking moves, which show off the shape of the body.
- */
-function openFlip(p: number, turns: number, split: number, arms: number, back: number): Pose {
-  const turn = p < 0.5 ? 2 * p * p : 1 - 2 * (1 - p) * (1 - p),
-    deg = 12 + (360 * turns - 12) * turn,
-    a = (deg * Math.PI) / 180,
-    up = Math.sin(Math.PI * p),
-    rot = (x: number, y: number): [number, number] => [
-      x * Math.cos(a) - y * Math.sin(a),
-      x * Math.sin(a) + y * Math.cos(a),
-    ],
-    py = -42 - 2 * up,
-    foot = (side: number): [number, number, number] => {
-      const [x, y] = rot(side * split * up + 3 * side, 38 - 3 * up);
-      return [x, py + y, deg];
-    },
-    hand = (side: number): [number, number] =>
-      rot(side * (10 - 6 * arms) + 8 * arms, 20 - 40 * up * (1 - arms) + 4 * arms);
-  return P(0, py, deg, -6 * up, foot(1), foot(-1), hand(1), hand(-1), 0, 0, back);
-}
-/** Butterfly Kick: the body flat as a propeller, legs scissoring over each other. */
-export const BUTTERFLY: Key[] = [
-  [0, P(2, -34, 34, -14, [14, -3, 0], [-20, -8, 30], [16, 16], [-8, 20])],
-  [0.25, P(2, -38, 78, -40, [-20, -50, 90], [-34, -14, 80], [20, -10], [-18, 12], 0, 0, 1)],
-  [0.5, P(0, -40, 92, -46, [-38, -18, 95], [-16, -56, 100], [14, 18], [-20, -8], 0, 0, 1)],
-  [0.75, P(0, -40, 60, -24, [-14, -52, 80], [-30, -22, 70], [20, 8], [-14, 14])],
-  [1, P(2, -36, 22, -8, [16, -3, -6], [-18, -8, 30], [14, 6], [-8, 12])],
-];
-/** Aerial: a cartwheel with no hands, legs wide. */
-export const aerialPose = (p: number) => openFlip(p, 1, 24, 0, 0);
-/** Webster: a front flip off one leg, the other kicking through. */
-export const websterPose = (p: number) => openFlip(p, 1, 14, 0.5, 0);
-/** Gainer: a backflip that keeps travelling forward. */
-export const gainerPose = (p: number) => flipPose(p, -1);
-/** Corkscrew: a laid-out backflip with a twist, shown by the body turning to face the other way and back. */
-export const corkscrewPose = (p: number) =>
-  openFlip(p, -1, 4, 1, p > 0.3 && p < 0.72 ? 1 : 0);
+/** Cartwheel: hands down halfway with the legs wide, turning the body to face backward for the handsprings. */
+export const CARTWHEEL_CONTACT = 0.5;
+export const cartwheelPose = (p: number) =>
+  handspringPose(p, CARTWHEEL_CONTACT, { split: 22, back: p > CARTWHEEL_CONTACT ? 1 : 0 });
+/** A back handspring in the middle of a pass, already facing backward from start to finish. */
+export const tumblePose = (p: number, contact: number) =>
+  handspringPose(p, contact, { split: 0, back: 1 });
+/** The finish: a tucked back flip, turning to face forward again just before landing, ready to run. */
+export const backTuckPose = (p: number): Pose => ({
+  ...flipPose(p),
+  back: p < 0.9 ? 1 : 0,
+});

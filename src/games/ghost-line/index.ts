@@ -37,7 +37,7 @@ const game: GameModule = {
     "Roof edges give flips: Front, then Back, then a Double once your combo reaches 3. Big drops give a Swallow Dive, or a Triple Swallow on a combo of 3 or more. Live wires give a Back Handspring.",
     "Press slide just before a hard landing for a Speed Roll. Otherwise the landing slows you down.",
     "Tricks in a row build a combo, and each one adds more speed. Any mistake ends it.",
-    "Pink mats are for tricking. Press in the zone at the start of one, and your runner chains three tricks in a row for a Tricking Combo and a huge burst.",
+    "Pink mats are for tumbling. Press in the zone at the start of one for a Cartwheel, two Back Handsprings and a Back Flip, all in a row, then a Tricking Combo and a huge burst.",
     "Every race is a new course, with its own length, challenges and scenery.",
     "The fastest time across the line wins.",
   ],

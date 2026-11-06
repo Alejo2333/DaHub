@@ -86,6 +86,8 @@ describe('ghosts',()=>{
  it('smooths between samples',()=>{
   expect(ghostAt([s(0,0),s(100,50)],50)!.x).toBeCloseTo(25)
   expect(ghostAt([s(0,0,'slide',.2),s(100,50,'slide',.4)],50)!.p).toBeCloseTo(.3)})
+ it('a move restarting is not played backward',()=>{
+  expect(ghostAt([s(0,0,'tumble',.9),s(100,50,'tumble',.1)],50)!.p).toBe(.1)})
  it('holds the last sample when none is newer, and has nothing with no samples',()=>{
   expect(ghostAt([s(0,0),s(100,50)],500)!.x).toBe(50);expect(ghostAt([],0)).toBeNull()})
  it('does not smooth across a respawn',()=>{

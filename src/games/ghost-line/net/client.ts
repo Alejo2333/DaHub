@@ -35,7 +35,8 @@ export function ghostAt(list: Sample[], time: number): Sample | null {
     x: a.x + (b.x - a.x) * k,
     y: a.y + (b.y - a.y) * k,
     move: b.move,
-    p: a.move === b.move ? a.p + (b.p - a.p) * k : b.p,
+    // A lower progress means the same move started again, like two handsprings in a row.
+    p: a.move === b.move && b.p >= a.p ? a.p + (b.p - a.p) * k : b.p,
   };
 }
 

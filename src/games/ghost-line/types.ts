@@ -23,11 +23,9 @@ export const MOVES = [
   "swallow",
   "handspring",
   "tripleswallow",
-  "butterfly",
-  "aerial",
-  "gainer",
-  "webster",
-  "corkscrew",
+  "cartwheel",
+  "tumble",
+  "backtuck",
 ] as const;
 export type Move = (typeof MOVES)[number];
 

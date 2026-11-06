@@ -5,9 +5,7 @@ import {
   PERFECT,
   platformAfter,
   platformAt,
-  type ChainMove,
   type Course,
-  type Mat,
   type Obstacle,
   type ZoneKind,
 } from "./course";
@@ -63,11 +61,9 @@ export const TRICK_NAMES = {
   swallow: "Swallow Dive",
   handspring: "Back Handspring",
   tripleswallow: "Triple Swallow",
-  butterfly: "Butterfly Kick",
-  aerial: "Aerial",
-  gainer: "Gainer",
-  webster: "Webster",
-  corkscrew: "Corkscrew",
+  cartwheel: "Cartwheel",
+  tumble: "Back Handspring",
+  backtuck: "Back Flip",
   trickcombo: "Tricking Combo!",
 } as const;
 export type TrickName = keyof typeof TRICK_NAMES;
@@ -79,13 +75,14 @@ const TRICK_BONUS: Partial<Record<TrickName, number>> = {
   tripleswallow: 40,
   trickcombo: 70,
 };
-/** How each chain trick moves: seconds, and how high it goes. */
+type ChainMove = "cartwheel" | "tumble" | "backtuck";
+/** The tumbling pass on a mat: a cartwheel to turn round, two back handsprings, and a back flip to finish. */
+export const TUMBLING_PASS: ChainMove[] = ["cartwheel", "tumble", "tumble", "backtuck"];
+/** How each trick in the pass moves: seconds, and how high it goes. */
 const CHAIN_MOVES: Record<ChainMove, { dur: number; arc: number }> = {
-  butterfly: { dur: 0.5, arc: 34 },
-  aerial: { dur: 0.5, arc: 44 },
-  gainer: { dur: 0.56, arc: 62 },
-  webster: { dur: 0.54, arc: 58 },
-  corkscrew: { dur: 0.6, arc: 66 },
+  cartwheel: { dur: 0.46, arc: 0 },
+  tumble: { dur: 0.5, arc: 28 },
+  backtuck: { dur: 0.6, arc: 66 },
 };
 const isChainMove = (m: Move): m is ChainMove => m in CHAIN_MOVES;
 
@@ -133,8 +130,8 @@ export interface Runner {
   comboT: number;
   /** The last trick landed, for showing it. `n` changes each time. */
   lastTrick: { name: TrickName; combo: number; n: number } | null;
-  /** The chain being performed on a mat, and which trick in it is next. */
-  chain: Mat["chain"] | null;
+  /** The pass being performed on a mat, and which trick in it is next. */
+  chain: ChainMove[] | null;
   chainNext: number;
   tricks: number;
   /** Flips so far, which decides the next one. */
@@ -426,7 +423,7 @@ function pressJump(r: Runner, c: Course) {
     ? c.mats.find((q) => r.x >= q.x0 && r.x <= q.x0 + MAT_ZONE && !r.done)
     : undefined;
   if (mat) {
-    r.chain = mat.chain;
+    r.chain = TUMBLING_PASS;
     r.chainNext = 0;
     return startChainMove(r);
   }
@@ -507,7 +504,7 @@ export function step(r: Runner, c: Course, input: Input, dt = STEP) {
         r.x = r.ledgeX + (r.to.x - r.ledgeX) * q;
         r.y = r.to.y + 14 * (1 - q) - 10 * Math.sin(Math.PI * q);
       }
-    } else if (m === "handspring") {
+    } else if (m === "handspring" || m === "tumble") {
       r.x = r.from.x + (r.to.x - r.from.x) * p;
       r.y =
         r.from.y -

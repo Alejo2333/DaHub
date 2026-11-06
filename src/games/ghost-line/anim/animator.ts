@@ -2,17 +2,15 @@ import { platformAfter, platformAt, type Course } from "../mechanics/course";
 import { HANDSPRING_CONTACT } from "../mechanics/runner";
 import type { Move } from "../types";
 import {
-  aerialPose,
   AIR,
   BONK,
-  BUTTERFLY,
   CLIMB,
-  corkscrewPose,
+  backTuckPose,
+  cartwheelPose,
   CYCLE_LEN,
   DASH,
   FINISH,
   flipPose,
-  gainerPose,
   FLAIL,
   handspringPose,
   IDLE,
@@ -27,7 +25,7 @@ import {
   SWALLOW,
   STUMBLE,
   tripleSwallowPose,
-  websterPose,
+  tumblePose,
   VAULT,
   WALLRUN,
 } from "./clips";
@@ -59,11 +57,9 @@ const BLEND: Record<Move, number> = {
   doubleflip: 0.1,
   swallow: 0.12,
   tripleswallow: 0.1,
-  butterfly: 0.08,
-  aerial: 0.08,
-  gainer: 0.08,
-  webster: 0.08,
-  corkscrew: 0.08,
+  cartwheel: 0.08,
+  tumble: 0.08,
+  backtuck: 0.08,
   handspring: 0.08,
 };
 const FLAIL_SPEED = 900,
@@ -168,16 +164,12 @@ export class Animator {
         return sample(SWALLOW, p);
       case "tripleswallow":
         return tripleSwallowPose(p);
-      case "butterfly":
-        return sample(BUTTERFLY, p);
-      case "aerial":
-        return aerialPose(p);
-      case "gainer":
-        return gainerPose(p);
-      case "webster":
-        return websterPose(p);
-      case "corkscrew":
-        return corkscrewPose(p);
+      case "cartwheel":
+        return cartwheelPose(p);
+      case "tumble":
+        return tumblePose(p, HANDSPRING_CONTACT);
+      case "backtuck":
+        return backTuckPose(p);
       case "handspring":
         return handspringPose(p, HANDSPRING_CONTACT);
     }
@@ -234,8 +226,9 @@ export class Animator {
     pose.py += this.dip * (onFeet ? 1 : 0.4);
     if (onFeet) pose.lean += this.surge;
     // The head lags the body a little, which reads as weight.
-    this.headLag += (pose.lean - this.headLag) * Math.min(1, dt * 14);
-    pose.head -= Math.max(-14, Math.min(14, (pose.lean - this.headLag) * 0.35));
+    const behind = ((((pose.lean - this.headLag + 180) % 360) + 360) % 360) - 180;
+    this.headLag += behind * Math.min(1, dt * 14);
+    pose.head -= Math.max(-14, Math.min(14, behind * 0.35));
     this.output = pose;
 
     let feet: { f: V | null; b: V | null } | undefined;

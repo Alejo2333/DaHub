@@ -4,7 +4,7 @@ import {buildCourse,type Course} from '../mechanics/course'
 import {animParam,newRunner,start,step} from '../mechanics/runner'
 import {Animator,anchorFor} from './animator'
 import {HANDSPRING_CONTACT} from '../mechanics/runner'
-import {AIR,CYCLE_LEN,flipPose,handspringPose,KONG,runFoot,runPose,sample,tripleSwallowPose} from './clips'
+import {AIR,backTuckPose,CARTWHEEL_CONTACT,cartwheelPose,CYCLE_LEN,flipPose,handspringPose,tumblePose,KONG,runFoot,runPose,sample,tripleSwallowPose} from './clips'
 import {twoBone} from './ik'
 import {BONES,solve,type Joints} from './skeleton'
 
@@ -99,13 +99,13 @@ describe('animator',()=>{
  it('rises and falls differently in the air',()=>{
   expect(sample(AIR,0).fy).toBeLessThan(sample(AIR,1).fy)})
  it('tricks have valid, smooth motion from start to finish',()=>{
-  for(const move of ['kong','dashvault','flip','backflip','doubleflip','swallow','tripleswallow','butterfly','aerial','gainer','webster','corkscrew','handspring','wallrun','powerslide','speedroll'] as const){
+  for(const move of ['kong','dashvault','flip','backflip','doubleflip','swallow','tripleswallow','cartwheel','tumble','backtuck','handspring','wallrun','powerslide','speedroll'] as const){
    const an=new Animator();let prev:Joints|null=null,x=0
    for(let i=0;i<20;i++){x+=6;an.update({move:'run',p:0,x,y:0},DT,null)}
    for(let p=0;p<=1;p+=.025){
     x+=6;const j=an.update({move,p,x,y:0},DT,null)
     limbsKeepLength(j)
-    if(prev)for(const key of['pelvis','chest','head','ankleF','ankleB'] as const)expect(len(prev[key],j[key]),`${move} ${key} at ${p}`).toBeLessThan(move==='tripleswallow'?52:['doubleflip','aerial','webster','gainer','corkscrew','butterfly'].includes(move)?36:26)
+    if(prev)for(const key of['pelvis','chest','head','ankleF','ankleB'] as const)expect(len(prev[key],j[key]),`${move} ${key} at ${p}`).toBeLessThan(move==='tripleswallow'?52:['doubleflip','backtuck','cartwheel','tumble'].includes(move)?36:26)
     prev=j}}})
  it('a flip goes all the way round and stays in one piece',()=>{
   expect(flipPose(0).lean).toBeLessThan(30);expect(flipPose(.5).lean).toBeGreaterThan(150);expect(flipPose(1).lean).toBeCloseTo(360,0)
@@ -117,6 +117,19 @@ describe('animator',()=>{
   const an=new Animator();an.update({move:'tripleswallow',p:1,x:0,y:0},DT,null)
   const a=an.update({move:'speedroll',p:0,x:5,y:0},DT,null),b=an.update({move:'speedroll',p:.05,x:10,y:0},DT,null)
   expect(len(a.chest,b.chest)).toBeLessThan(20);limbsKeepLength(a)})
+ it('hands reach the ground in the Cartwheel and each Back Handspring of a pass',()=>{
+  for(const[pose]of[[cartwheelPose(CARTWHEEL_CONTACT)],[tumblePose(HANDSPRING_CONTACT,HANDSPRING_CONTACT)]] as const){
+   const j=solve(pose,0,0,null);expect(j.handF.y).toBeGreaterThan(-8);expect(j.handF.y).toBeLessThan(2);expect(j.ankleF.y).toBeLessThan(j.head.y-40)}})
+ it('the body turns backward in the cartwheel, stays that way, and faces forward again for the landing',()=>{
+  expect(cartwheelPose(.2).back).toBe(0);expect(cartwheelPose(.8).back).toBe(1)
+  expect(tumblePose(0,HANDSPRING_CONTACT).back).toBe(1);expect(tumblePose(1,HANDSPRING_CONTACT).back).toBe(1)
+  expect(backTuckPose(.3).back).toBe(1);expect(backTuckPose(1).back).toBe(0)})
+ it('two handsprings in a row join up with nothing jumping',()=>{
+  const an=new Animator();let x=0,prev:Joints|null=null
+  for(let n=0;n<2;n++)for(let p=0;p<=1;p+=1/30){
+   x+=11;const j=an.update({move:'tumble',p,x,y:0},DT,null)
+   if(prev)for(const key of['pelvis','chest','head','ankleF'] as const)expect(len(prev[key],j[key]),`${key} at ${n} ${p}`).toBeLessThan(36)
+   prev=j}})
  it('hands reach the ground in a Back Handspring, upside down, facing backward',()=>{
   const pose=handspringPose(HANDSPRING_CONTACT,HANDSPRING_CONTACT),j=solve(pose,0,0,null)
   expect(j.handF.y).toBeGreaterThan(-8);expect(j.handF.y).toBeLessThan(2)
