@@ -24,7 +24,7 @@ Symmetric NATs, corporate firewalls, some mobile carriers and some home routers 
 - Host leaving ends the session for everyone (safe termination; no migration). Late joiners get a `STATE_SNAPSHOT`.
 - Chat (`app/ChatBox.tsx`) goes through the host, which names the sender, cleans the text and limits each player to one message per 400 ms. It isn't saved, so late joiners only see new messages. The casino scene also shows each message as a bubble over the sender's head.
 - `multiplayer/validate.ts` checks the shape of every party message, and each game's validators check its own. Only the host named in the first snapshot can send state after that, and only party members can act.
-- `games/ghost-line/` is a parkour race animated entirely in code: `mechanics/` has the course and movement, `anim/` the skeleton, IK and clips. Each browser simulates its own runner, so finish times can be faked by a determined player.
+- `games/ghost-line/` is a parkour race animated entirely in code: `mechanics/` has the course and movement, `anim/` the skeleton, IK and clips. Perfect-timing distances for tricks are `PERFECT` in `mechanics/course.ts`, and speed bursts are `BURST` in `mechanics/runner.ts`. Each browser simulates its own runner, so finish times can be faked by a determined player.
 - `games/gamble-with-janny/net/` holds the casino's host rules, client hooks and validators. `scenes/art.ts` draws all casino art in code on canvases, so there are no image files. `ui/stages.tsx` holds each game's animated stage.
 
 ## Adding a game

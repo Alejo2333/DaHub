@@ -12,6 +12,22 @@ export const MOVES = [
   "bonk",
   "respawn",
   "finish",
+  "kong",
+  "dashvault",
+  "flip",
+  "wallrun",
+  "powerslide",
+  "speedroll",
+  "backflip",
+  "doubleflip",
+  "swallow",
+  "handspring",
+  "tripleswallow",
+  "butterfly",
+  "aerial",
+  "gainer",
+  "webster",
+  "corkscrew",
 ] as const;
 export type Move = (typeof MOVES)[number];
 

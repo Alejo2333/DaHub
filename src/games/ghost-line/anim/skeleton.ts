@@ -40,6 +40,8 @@ export interface Pose {
   grip: number;
   /** How much the feet stay fixed in the world, from 0 to 1. */
   plant: number;
+  /** Above 0.5, the body faces backward, so knees and elbows bend the other way. */
+  back: number;
 }
 export type PoseKey = keyof Pose;
 
@@ -87,6 +89,7 @@ export function solve(
       x: neck.x + Math.sin(h) * BONES.head,
       y: neck.y - Math.cos(h) * BONES.head,
     };
+  const facing: 1 | -1 = pose.back > 0.5 ? -1 : 1;
   const leg = (fx: number, fy: number, pitch: number, lock: V | null) => {
     const target = lock ?? { x: x + fx, y: y + fy };
     const { joint, end } = twoBone(
@@ -94,7 +97,7 @@ export function solve(
       target,
       BONES.thigh,
       BONES.shin,
-      -1,
+      facing === 1 ? -1 : 1,
     );
     const t = pitch * RAD;
     return {
@@ -118,7 +121,7 @@ export function solve(
       { x: tx, y: ty },
       BONES.upperArm,
       BONES.forearm,
-      1,
+      facing === 1 ? 1 : -1,
     );
     return { elbow: joint, hand: end };
   };

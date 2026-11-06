@@ -17,7 +17,7 @@ const time=(ms:number)=>{const s=ms/1000;return `${Math.floor(s/60)}:${(s%60).to
 export default function GhostLine(){
  const state=useApp(s=>s.gameState as RaceState|null),players=useApp(s=>s.players),host=isHost()
  const box=useRef<HTMLDivElement>(null)
- const [loading,setLoading]=useState(true),[hud,setHud]=useState({x:0,ms:0,flow:0})
+ const [loading,setLoading]=useState(true),[hud,setHud]=useState({x:0,ms:0,flow:0,combo:0,boost:0})
  const seed=state?.seed
  const course=useMemo(()=>seed===undefined?null:buildCourse(seed),[seed])
 
@@ -32,7 +32,7 @@ export default function GhostLine(){
     others:()=>useApp.getState().players.filter(p=>p.id!==selfId),
     samples:id=>ghosts.get(id),
     onPose:sendPose,onFinish:sendFinish,
-    onHud:(x,ms,flow)=>setHud({x,ms,flow}),
+    onHud:(x,ms,flow,combo,boost)=>setHud({x,ms,flow,combo,boost}),
     chat:()=>useApp.getState().chat})
    setLoading(false)})
   return()=>{dead=true;game?.destroy(true)}},[course])
@@ -60,12 +60,14 @@ export default function GhostLine(){
     </div>
    </div>
    <div className="hud-stat gl-flow" title="Clean moves build flow, and flow makes you faster"><span className="hud-label">Flow</span><span aria-label={`Flow ${Math.round(hud.flow*5)} of 5`}>{[1,2,3,4,5].map(i=><i key={i} className={hud.flow*5>=i-.01?'on':''}/>)}</span></div>
+   <div className="hud-stat" title="Tricks in a row add speed"><span className="hud-label">Combo</span><b className={hud.combo?'gl-combo':undefined}>{hud.combo?`x${hud.combo}`:'–'}</b></div>
+   <div className="hud-stat gl-burst" title="Speed from tricks"><span className="hud-label">Burst</span><span className="gl-burst-bar"><i style={{width:`${Math.min(100,hud.boost/2)}%`}}/></span></div>
    <ul className="hud-players" aria-label={`${players.length} players`}>{players.map(p=><li key={p.id} title={p.name}><Avatar id={p.id} name={p.name} size={26}/></li>)}</ul>
    <div className="hud-actions"><button onClick={e=>{e.currentTarget.blur();exit()}} className="btn-ghost">Leave</button></div>
   </header>
   {state.phase==='countdown'&&<div className="gl-count" aria-live="assertive"><span key={state.clock}>{state.clock}</span></div>}
   {state.phase==='racing'&&hud.ms<1200&&<div className="gl-count" aria-hidden="true"><span>GO!</span></div>}
-  {state.phase!=='results'&&<p className="gl-hint">Space to jump · S to slide · tap top or bottom</p>}
+  {state.phase!=='results'&&<p className="gl-hint">Press in the glowing zones for tricks · Space jump · S slide</p>}
   <ChatBox variant="game"/>
   {state.phase==='results'&&<div className="modal-backdrop"><div className="modal modal-win">
    <div className="modal-medal" aria-hidden="true">🏁</div>

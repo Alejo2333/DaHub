@@ -30,9 +30,15 @@ const game: GameModule = {
     "Everyone runs the same rooftops at once, but you only see each other as ghosts. Time your jumps, vaults, climbs and slides to keep your flow and post the fastest time.",
   howTo: [
     "Your runner runs by itself. You only choose when to jump and when to slide.",
-    "Jump just before a block to vault it, or just before a wall to climb it.",
-    "Slide under low bars. Mistakes cost you speed, and a fall sends you back to the last checkpoint.",
-    "Clean moves build flow, and flow makes you faster.",
+    "Press jump before a block to vault it, or before a wall to climb it.",
+    "Slide under low bars and jump over live wires. Mistakes cost you speed, and a fall sends you back to the last checkpoint.",
+    "Glowing zones on the ground mark the perfect moment. Press there for a trick and a burst of speed.",
+    "Wide blocks give a Kong Vault, narrow ones a Dash Vault, walls a Wall Run, and bars a Power Slide.",
+    "Roof edges give flips: Front, then Back, then a Double once your combo reaches 3. Big drops give a Swallow Dive, or a Triple Swallow on a combo of 3 or more. Live wires give a Back Handspring.",
+    "Press slide just before a hard landing for a Speed Roll. Otherwise the landing slows you down.",
+    "Tricks in a row build a combo, and each one adds more speed. Any mistake ends it.",
+    "Pink mats are for tricking. Press in the zone at the start of one, and your runner chains three tricks in a row for a Tricking Combo and a huge burst.",
+    "Every race is a new course, with its own length, challenges and scenery.",
     "The fastest time across the line wins.",
   ],
   controls: [

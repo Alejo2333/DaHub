@@ -3,9 +3,10 @@ import {MOVES} from '../types'
 import {buildCourse,type Course} from '../mechanics/course'
 import {animParam,newRunner,start,step} from '../mechanics/runner'
 import {Animator,anchorFor} from './animator'
-import {AIR,CYCLE_LEN,runFoot,sample} from './clips'
+import {HANDSPRING_CONTACT} from '../mechanics/runner'
+import {AIR,CYCLE_LEN,flipPose,handspringPose,KONG,runFoot,runPose,sample,tripleSwallowPose} from './clips'
 import {twoBone} from './ik'
-import {BONES,type Joints} from './skeleton'
+import {BONES,solve,type Joints} from './skeleton'
 
 const len=(a:{x:number;y:number},b:{x:number;y:number})=>Math.hypot(a.x-b.x,a.y-b.y)
 const DT=1/60
@@ -83,11 +84,11 @@ describe('animator',()=>{
   for(let i=0;i<20;i++)an.update({move:'run',p:0,x:104+i*5,y:0},DT,null)
   expect(an.update({move:'run',p:0,x:210,y:0},DT,null).ankleF.x).not.toBeCloseTo(a.ankleF.x,0)})
  it('hands really touch the block in a vault, and the ledge in a climb, along the real paths',()=>{
-  const c:Course={platforms:[{x0:-100,x1:800,y:0},{x0:800,x1:3000,y:-140}],obstacles:[{kind:'block',x:400,w:60,y:0,h:44}],checkpoints:[],finishX:2900,minMs:0}
+  const c:Course={platforms:[{x0:-100,x1:800,y:0},{x0:800,x1:3000,y:-140}],obstacles:[{kind:'block',x:400,w:60,y:0,h:44}],mats:[],checkpoints:[],finishX:2900,scenery:1,minMs:0}
   const r=newRunner();r.x=250;start(r);r.vx=340
   const an=new Animator(),touching=new Set<string>()
   for(let i=0;i<300&&r.x<850;i++){
-   const press=(r.move==='run'&&r.x>310&&r.x<340)||(r.move==='run'&&r.x>730&&r.x<770)
+   const press=(r.move==='run'&&r.x>285&&r.x<310)||(r.move==='run'&&r.x>695&&r.x<715)
    step(r,c,{jump:press,slide:false})
    const anchor=anchorFor(c,r.move,r.x),p=animParam(r),j=an.update({move:r.move,p,x:r.x,y:r.y},1/60,anchor)
    const mid=r.move==='vault'?p>.3&&p<.5:r.move==='climb'?p>.22&&p<.65:false
@@ -96,4 +97,36 @@ describe('animator',()=>{
  it('a move with no anchor still works',()=>{
   expect(new Animator().update({move:'vault',p:.4,x:0,y:0},DT,null).handF).toBeDefined()})
  it('rises and falls differently in the air',()=>{
-  expect(sample(AIR,0).fy).toBeLessThan(sample(AIR,1).fy)})})
+  expect(sample(AIR,0).fy).toBeLessThan(sample(AIR,1).fy)})
+ it('tricks have valid, smooth motion from start to finish',()=>{
+  for(const move of ['kong','dashvault','flip','backflip','doubleflip','swallow','tripleswallow','butterfly','aerial','gainer','webster','corkscrew','handspring','wallrun','powerslide','speedroll'] as const){
+   const an=new Animator();let prev:Joints|null=null,x=0
+   for(let i=0;i<20;i++){x+=6;an.update({move:'run',p:0,x,y:0},DT,null)}
+   for(let p=0;p<=1;p+=.025){
+    x+=6;const j=an.update({move,p,x,y:0},DT,null)
+    limbsKeepLength(j)
+    if(prev)for(const key of['pelvis','chest','head','ankleF','ankleB'] as const)expect(len(prev[key],j[key]),`${move} ${key} at ${p}`).toBeLessThan(move==='tripleswallow'?52:['doubleflip','aerial','webster','gainer','corkscrew','butterfly'].includes(move)?36:26)
+    prev=j}}})
+ it('a flip goes all the way round and stays in one piece',()=>{
+  expect(flipPose(0).lean).toBeLessThan(30);expect(flipPose(.5).lean).toBeGreaterThan(150);expect(flipPose(1).lean).toBeCloseTo(360,0)
+  expect(flipPose(.5,-1).lean).toBeLessThan(-120);expect(flipPose(1,-1).lean).toBeCloseTo(-360,0);expect(flipPose(1,2).lean).toBeCloseTo(720,0)})
+ it('a Triple Swallow turns three times, then opens out flat',()=>{
+  expect(tripleSwallowPose(.6).lean).toBeGreaterThan(900)
+  const open=tripleSwallowPose(.85);expect(open.lean-1080).toBeGreaterThan(60);expect(open.lean-1080).toBeLessThan(120)})
+ it('no spin unwinds backward into the roll',()=>{
+  const an=new Animator();an.update({move:'tripleswallow',p:1,x:0,y:0},DT,null)
+  const a=an.update({move:'speedroll',p:0,x:5,y:0},DT,null),b=an.update({move:'speedroll',p:.05,x:10,y:0},DT,null)
+  expect(len(a.chest,b.chest)).toBeLessThan(20);limbsKeepLength(a)})
+ it('hands reach the ground in a Back Handspring, upside down, facing backward',()=>{
+  const pose=handspringPose(HANDSPRING_CONTACT,HANDSPRING_CONTACT),j=solve(pose,0,0,null)
+  expect(j.handF.y).toBeGreaterThan(-8);expect(j.handF.y).toBeLessThan(2)
+  expect(j.ankleF.y).toBeLessThan(j.head.y-40);expect(pose.back).toBe(1)})
+ it('a clip passes through its keys without stopping at them',()=>{
+  const v=(t:number)=>sample(KONG,t).py
+  expect(Math.abs(sample(KONG,.26).py-KONG[1]![1].py)).toBeLessThan(.001)
+  // Halfway through the clip, a key isn't a pause: the torso keeps turning.
+  const lean=(t:number)=>sample(KONG,t).lean
+  expect(Math.abs(lean(.49)-lean(.47))).toBeGreaterThan(.1);void v})
+ it('knees rise and the body leans in at sprint speed',()=>{
+  const slow=runPose(.5,0),fast=runPose(.5,1)
+  expect(fast.lean).toBeGreaterThan(slow.lean);expect(Math.min(fast.fy,fast.by)).toBeLessThan(Math.min(slow.fy,slow.by))})})

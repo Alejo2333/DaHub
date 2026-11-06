@@ -5,8 +5,8 @@ import {sfx} from '../../../utils/sound'
 import {Animator,anchorFor} from '../anim/animator'
 import type {V} from '../anim/ik'
 import {BONES,type Joints} from '../anim/skeleton'
-import {platformAt,type Course} from '../mechanics/course'
-import {animParam,newRunner,start,step,STEP,type Runner} from '../mechanics/runner'
+import {platformAt,zonesIn,type Course,type Zone} from '../mechanics/course'
+import {animParam,newRunner,start,step,STEP,TRICK_NAMES,type Runner} from '../mechanics/runner'
 import {GHOST_DELAY,ghostAt,type Sample} from '../net/client'
 import type {Move,RaceState} from '../types'
 
@@ -18,12 +18,18 @@ export interface Hooks{
  samples:(id:string)=>Sample[]|undefined
  onPose:(x:number,y:number,move:Move,p:number)=>void
  onFinish:()=>void
- onHud:(x:number,ms:number,flow:number)=>void
+ onHud:(x:number,ms:number,flow:number,combo:number,boost:number)=>void
  chat:()=>ChatLine[]
 }
 const POSE_MS=100,HUD_MS=100,MAX_CATCHUP=.25,BUBBLE_MS=4000
-const SKY=[[0,'#1e0d3a'],[.45,'#6b2168'],[.75,'#c2416c'],[1,'#ff9a5a']] as const
-const ROOF=0x0e0718,ROOF_FACE=0x170b26,EDGE=0xff7a5c,PROP=0x1e1030,STRIPE=0xffc94a,CHECK=0x3de0d0
+/** Each course gets one of these looks, chosen by its seed. */
+const THEMES=[
+ {sky:['#1e0d3a','#6b2168','#c2416c','#ff9a5a'],sun:['#ffe9c4','#ffcf9a','#ffb08055','#ff708000'],far:'#6e2b6f',mid:'#47195a',near:'#2a0f3f',lit:'#ffb86b66',edge:0xff7a5c},
+ {sky:['#050816','#101a3f','#27306b','#5a4a8f'],sun:['#f4f7ff','#dfe6ff','#a9b8ff44','#7f8fff00'],far:'#232c62',mid:'#171f4a',near:'#0d1230',lit:'#ffe9a366',edge:0x7aa2ff},
+ {sky:['#2b3a67','#6f6a9c','#e59a8c','#ffd6a0'],sun:['#fffbe8','#fff0c2','#ffd9a055','#ffc08000'],far:'#8a6f90',mid:'#5c4a73',near:'#3a2f55',lit:'#ffe0a066',edge:0xffb27a},
+ {sky:['#0c1f1c','#14403a','#3f7a55','#b8c76a'],sun:['#f7ffd0','#e4f59a','#c8e06a55','#a0c04000'],far:'#1f4a40',mid:'#15352f',near:'#0c221f',lit:'#d8ff7a55',edge:0xb8f56a},
+]
+const ROOF=0x0e0718,ROOF_FACE=0x170b26,PROP=0x1e1030,STRIPE=0xffc94a,CHECK=0x3de0d0,WIRE=0x7df9ff,MAT=0xff4d8d
 const BODY=0x05020a,FAR=0x2c1b42
 const hsl=(h:number)=>Phaser.Display.Color.HSLToColor(h/360,.75,.62).color
 
@@ -51,9 +57,11 @@ class Run extends Phaser.Scene{
  lastPose=0;lastHud=0;lastMove:Move='idle';camX=0;camY=0
  world!:Phaser.GameObjects.Graphics;fg!:Phaser.GameObjects.Graphics;me!:Phaser.GameObjects.Graphics;fxG!:Phaser.GameObjects.Graphics;lines!:Phaser.GameObjects.Graphics
  sky!:Phaser.GameObjects.Image;sun!:Phaser.GameObjects.Image;layers:{s:Phaser.GameObjects.TileSprite;f:number}[]=[]
+ zones:Zone[]=[];trickSeen=0;trail:Joints[]=[];trailT=0
  puffs:Puff[]=[];ghosts=new Map<string,Ghost>();myColor=0;nameTag!:Phaser.GameObjects.Text
  bubbles=new Map<string,{t:Phaser.GameObjects.Text;until:number}>();chatSeen=0
  constructor(private h:Hooks){super('run')}
+ get theme(){return THEMES[this.h.course.scenery%THEMES.length]!}
 
  skyline(key:string,seed:number,color:string,lo:number,hi:number,w:number,lit:string|null){
   const H=420,c=this.textures.createCanvas(key,1024,H)!,x=c.getContext()
@@ -68,12 +76,13 @@ class Run extends Phaser.Scene{
   c.refresh()}
  create(){
   const sk=this.textures.createCanvas('gl-sky',4,512)!,sx=sk.getContext(),grad=sx.createLinearGradient(0,0,0,512)
-  for(const[o,col]of SKY)grad.addColorStop(o,col);sx.fillStyle=grad;sx.fillRect(0,0,4,512);sk.refresh()
+  const t=this.theme,at=this.h.course.scenery
+  ;[0,.45,.75,1].forEach((o,i)=>grad.addColorStop(o,t.sky[i]!));sx.fillStyle=grad;sx.fillRect(0,0,4,512);sk.refresh()
   const su=this.textures.createCanvas('gl-sun',256,256)!,ux=su.getContext(),ug=ux.createRadialGradient(128,128,20,128,128,128)
-  ug.addColorStop(0,'#ffe9c4');ug.addColorStop(.3,'#ffcf9a');ug.addColorStop(.34,'#ffb08055');ug.addColorStop(1,'#ff708000');ux.fillStyle=ug;ux.fillRect(0,0,256,256);su.refresh()
-  this.skyline('gl-far',101,'#6e2b6f',70,200,70,null)
-  this.skyline('gl-mid',202,'#47195a',90,270,90,'#ffb86b66')
-  this.skyline('gl-near',303,'#2a0f3f',60,230,120,'#ffd08a55')
+  ug.addColorStop(0,t.sun[0]!);ug.addColorStop(.3,t.sun[1]!);ug.addColorStop(.34,t.sun[2]!);ug.addColorStop(1,t.sun[3]!);ux.fillStyle=ug;ux.fillRect(0,0,256,256);su.refresh()
+  this.skyline('gl-far',at*3+101,t.far,70,200,70,null)
+  this.skyline('gl-mid',at*5+202,t.mid,90,270,90,t.lit)
+  this.skyline('gl-near',at*7+303,t.near,60,230,120,t.lit)
   this.sky=this.add.image(0,0,'gl-sky').setOrigin(0).setScrollFactor(0).setDepth(0)
   this.sun=this.add.image(0,0,'gl-sun').setScrollFactor(0).setDepth(1)
   this.layers=([['gl-far',.08,1],['gl-mid',.18,1.5],['gl-near',.32,2]] as const).map(([k,f,d])=>({s:this.add.tileSprite(0,0,10,420,k).setOrigin(0,1).setScrollFactor(0).setDepth(d),f}))
@@ -82,6 +91,7 @@ class Run extends Phaser.Scene{
   this.myColor=hsl(hueOf(this.h.selfId))
   this.nameTag=this.label(this.h.name,'#ffffff').setDepth(12)
   this.chatSeen=this.h.chat().at(-1)?.id??0
+  this.zones=zonesIn(this.h.course)
   this.scale.on('resize',this.layout,this);this.layout()
   this.input.keyboard!.on('keydown',(e:KeyboardEvent)=>{
    if(e.repeat)return
@@ -112,12 +122,17 @@ class Run extends Phaser.Scene{
   const x=tele?this.r.x:this.prevX+(this.r.x-this.prevX)*k,y=tele?this.r.y:this.prevY+(this.r.y-this.prevY)*k
   const now=performance.now()
   if(now-this.lastPose>POSE_MS&&this.going){this.lastPose=now;this.h.onPose(Math.round(x*10)/10,Math.round(y*10)/10,this.r.move,Math.round(animParam(this.r)*100)/100)}
-  if(now-this.lastHud>HUD_MS){this.lastHud=now;this.h.onHud(x,this.ms,this.r.flow)}
+  if(now-this.lastHud>HUD_MS){this.lastHud=now;this.h.onHud(x,this.ms,this.r.flow,this.r.combo,this.r.boost)}
   this.moveCamera(x,y,dt)
   this.drawWorld()
-  const joints=this.an.update({move:this.r.move,p:animParam(this.r),x,y,flow:this.r.flow},dt,anchorFor(this.h.course,this.r.move,x))
+  const joints=this.an.update({move:this.r.move,p:animParam(this.r),x,y},dt,anchorFor(this.h.course,this.r.move,x))
   this.scarf.update(joints.neck,dt)
-  this.me.clear();this.drawScarf(this.me,this.scarf,this.myColor,1);this.drawBody(this.me,joints,BODY,FAR,1)
+  this.me.clear()
+  // Echoes of the body while a trick burst lasts, so speed reads at a glance.
+  this.trailT+=dt
+  if(this.trailT>.045){this.trailT=0;this.trail.push(joints);if(this.trail.length>5)this.trail.shift()}
+  if(this.r.boost>25)this.trail.forEach((j,i)=>this.drawBody(this.me,j,this.myColor,this.myColor,.05+.035*i))
+  this.drawScarf(this.me,this.scarf,this.myColor,1);this.drawBody(this.me,joints,BODY,FAR,1)
   this.nameTag.setPosition(joints.head.x,joints.head.y-20)
   this.updateGhosts(now,dt)
   this.updateBubbles(now)
@@ -127,17 +142,25 @@ class Run extends Phaser.Scene{
  /** Sound, dust and camera shake when a move starts. */
  react(){
   const r=this.r
+  if(r.lastTrick&&r.lastTrick.n!==this.trickSeen){
+   this.trickSeen=r.lastTrick.n
+   this.popTrick(TRICK_NAMES[r.lastTrick.name],r.lastTrick.combo);sfx.cash();this.dust(r.x,r.y,8,.9)}
   if(r.move===this.lastMove){if(r.move==='slide'&&r.vx>120&&Math.random()<.4)this.dust(r.x+6,r.y,1,.5);return}
   this.lastMove=r.move
   switch(r.move){
    case'jump':sfx.tick();this.dust(r.x,r.y,4,.6);break
+   case'speedroll':sfx.reelStop();this.dust(r.x,r.y,10,1);break
    case'land':sfx.reelStop();this.dust(r.x,r.y,7,.8);break
    case'roll':sfx.reelStop();this.dust(r.x,r.y,14,1.2);this.cameras.main.shake(140,.006);break
    case'slide':sfx.tick();this.dust(r.x,r.y,6,.8);break
    case'vault':case'climb':sfx.click();break
+   case'kong':case'dashvault':case'flip':case'backflip':case'doubleflip':case'swallow':case'tripleswallow':case'handspring':case'butterfly':case'aerial':case'gainer':case'webster':case'corkscrew':case'wallrun':case'powerslide':sfx.buy();break
    case'stumble':sfx.lose();this.dust(r.x,r.y,8,1);this.cameras.main.shake(160,.005);break
    case'bonk':sfx.lose();this.cameras.main.shake(220,.01);break
    case'respawn':sfx.alarm();this.cameras.main.flash(180,255,255,255);break}}
+ popTrick(name:string,combo:number){
+  const t=this.add.text(this.r.x,this.r.y-100,combo>1?`${name}  x${combo}`:name,{fontFamily:'Outfit,system-ui,sans-serif',fontSize:'18px',fontStyle:'800',color:'#3de0d0',stroke:'#05020a',strokeThickness:4,resolution:3}).setOrigin(.5).setDepth(14)
+  this.tweens.add({targets:t,y:t.y-46,x:t.x+90,alpha:0,duration:900,ease:'Cubic.easeOut',onComplete:()=>t.destroy()})}
  dust(x:number,y:number,n:number,size:number){
   for(let i=0;i<n;i++){const max=.3+Math.random()*.4;this.puffs.push({x:x+(Math.random()-.5)*16,y:y-2,vx:-60-Math.random()*110,vy:-20-Math.random()*50,life:max,max,size:(2+Math.random()*4)*size})}}
  moveCamera(x:number,y:number,dt:number){
@@ -153,18 +176,38 @@ class Run extends Phaser.Scene{
  /** Draws only what the camera can see. */
  drawWorld(){
   const c=this.h.course,v=this.cameras.main.worldView,x0=v.x-40,x1=v.x+v.width+40,bottom=v.y+v.height+60,g=this.world,f=this.fg
+  const edge=this.theme.edge
   g.clear();f.clear()
   for(const p of c.platforms){
    if(p.x1<x0||p.x0>x1)continue
    g.fillStyle(ROOF);g.fillRect(p.x0,p.y,p.x1-p.x0,Math.max(0,bottom-p.y))
    g.fillStyle(ROOF_FACE)
    for(let wx=Math.ceil(Math.max(p.x0+24,x0)/90)*90;wx<Math.min(p.x1-24,x1);wx+=90)for(let wy=p.y+34;wy<bottom;wy+=52)if((wx*7+Math.round(wy-p.y)*13)%5<2)g.fillRect(wx,wy,22,26)
-   g.fillStyle(EDGE,.9);g.fillRect(p.x0,p.y,p.x1-p.x0,2)}
+   g.fillStyle(edge,.9);g.fillRect(p.x0,p.y,p.x1-p.x0,2)}
+  // Tricking mats.
+  for(const m of c.mats){
+   if(m.x1<x0||m.x0>x1)continue
+   g.fillStyle(MAT,.85);g.fillRect(m.x0,m.y,m.x1-m.x0,6)
+   g.fillStyle(MAT,.12);g.fillRect(m.x0,m.y-40,m.x1-m.x0,40)
+   for(let tx=m.x0;tx<m.x1;tx+=60){g.fillStyle(0xffffff,.35);g.fillRect(tx,m.y,2,6)}}
+  // Trick zones: a press here is perfect.
+  const pulse=.55+.3*Math.sin(performance.now()/160)
+  for(const z of this.zones){
+   if(z.x1<x0||z.x0>x1||z.x1<this.r.x-30)continue
+   g.fillStyle(CHECK,pulse);g.fillRect(z.x0,z.y-1,z.x1-z.x0,5)
+   g.fillStyle(CHECK,pulse*.18);g.fillRect(z.x0,z.y-22,z.x1-z.x0,22)}
   for(const o of c.obstacles){
    if(o.x+o.w<x0||o.x>x1)continue
-   if(o.kind==='block'){
+   if(o.kind==='wire'){
+    // A live cable along the roof, which flickers.
+    g.fillStyle(PROP);g.fillRect(o.x-4,o.y-10,5,10);g.fillRect(o.x+o.w-1,o.y-10,5,10)
+    g.lineStyle(2,WIRE,.6+.4*Math.sin(performance.now()/45+o.x))
+    g.beginPath();g.moveTo(o.x,o.y-7)
+    for(let i=1;i<=8;i++)g.lineTo(o.x+o.w*i/8,o.y-7+(i%2?-3:3)*Math.sin(performance.now()/70+i))
+    g.strokePath()}
+   else if(o.kind==='block'){
     g.fillStyle(PROP);g.fillRoundedRect(o.x,o.y-o.h,o.w,o.h,3)
-    g.fillStyle(EDGE,.9);g.fillRect(o.x,o.y-o.h,o.w,2)
+    g.fillStyle(edge,.9);g.fillRect(o.x,o.y-o.h,o.w,2)
     g.fillStyle(0x000000,.35);for(let i=8;i<o.h-4;i+=8)g.fillRect(o.x+5,o.y-o.h+i,o.w-10,3)}
    else{
     // A sign hanging from a beam. It's drawn in front, so a runner visibly passes under it.
