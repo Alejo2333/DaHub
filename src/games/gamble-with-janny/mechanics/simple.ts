@@ -1,4 +1,4 @@
-import type { SimpleKind } from "../../../types/net";
+import type { SimpleKind } from "../types";
 import { TABLE_GAME_ODDS, type SimpleOdds, type SimpleOption } from "./odds";
 
 /**
@@ -36,7 +36,7 @@ export const SIMPLE: Record<SimpleKind, SimpleGame> = {
     ...TABLE_GAME_ODDS.darts,
   },
   rps: {
-    label: "Rock Paper Fermil",
+    label: "Rock Paper Janny",
     icon: "✊",
     style: "table",
     color: 0xc58cff,

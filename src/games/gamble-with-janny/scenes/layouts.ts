@@ -1,4 +1,4 @@
-import type {GameKind} from '../../../types/net'
+import type {GameKind} from '../types'
 import {FLOORS} from '../mechanics/floors'
 import {simpleOf} from '../mechanics/simple'
 

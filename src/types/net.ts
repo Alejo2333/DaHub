@@ -1,62 +1,19 @@
 export interface Player{id:string;name:string;ready:boolean}
-export interface Stats{bets:number;won:number;lost:number;peak:number;biggest:number}
-export interface GState{
- phase:'playing'|'upgrades'|'final'|'won'|'over'
- balance:number
- quota:number
- floor:number
- timeLeft:number
- upgrades:Record<string,number>
- shield:number
- /** Fermil's marker can be taken once per floor. */
- loanUsed:boolean
- /** Markers taken this run. Each one adds to every later floor's debt. */
- markers:number
- /** How a won run ended: walked out free, or bought the casino. */
- ending:'free'|'owner'|null
- /** Chips awarded for paying the last floor's debt early. */
- bonus:number
- /** Chips Fermil advanced for the upcoming floor. */
- payday:number
- stats:Stats
- /** Machines unlocked so far. */
- machines:GameKind[]
- /** Running room event. It ends when timeLeft reaches `until`. */
- event:RoomEvent|null
- /** Open team vote. It closes when timeLeft reaches `until`. */
- vote:Vote|null
- /** Charges from the Sketchy Shop: wins boosted, and losing bets redrawn. They carry between floors. */
- luck:number
- reroll:number
- /** Items sold on this floor, by item id. */
- bought:Record<string,number>
- pranks:Prank[]
-}
-export const PRANK_KINDS=['stink','shoes','cuffs','butter','curse'] as const
-export type PrankKind=typeof PRANK_KINDS[number]
-/** `until` is the timeLeft when a timed prank ends. Null means it lasts until it has been triggered once. */
-export interface Prank{kind:PrankKind;target:string;until:number|null}
-export const SIMPLE_KINDS=['coin','scratch','darts','rps','highcard','claw','ringtoss','derby','bowling','penalty','bingo','fishing','balloon','pegdrop','colorwheel','chest','dial'] as const
-export type SimpleKind=typeof SIMPLE_KINDS[number]
-export const GAME_KINDS=['slots','roulette','dice','wheel','crash','cups','vault',...SIMPLE_KINDS] as const
-export type GameKind=typeof GAME_KINDS[number]
-export type VoteKind='dare'|'shakedown'|'deal'
-export interface RoomEvent{kind:'hot'|'cut';machine:GameKind;until:number}
-export interface Vote{kind:VoteKind;until:number;yes:string[];no:string[]}
-export interface BetReq{id:string;game:GameKind;wager:number;choice:string|number}
-export interface BetResult{id:string;from:string;game:GameKind;wager:number;payout:number;net:number;roll:unknown;detail:string;shielded:boolean}
 export type Status='idle'|'connecting'|'lobby'|'playing'|'error'
-export type Tone='win'|'lose'|'info'
+/** The party protocol. It knows nothing about any game: `state` and `m` are checked by the running game's validators. */
 export type Msg=
 |{t:'PLAYER_JOIN';name:string}|{t:'PLAYER_LEAVE';id:string}|{t:'PLAYER_READY';ready:boolean}
-|{t:'PLAYER_MOVE';x:number;y:number}|{t:'MACHINE_INTERACT';machine:GameKind}
-|{t:'GAME_START';game:GState}|{t:'GAME_END';game:GState}|{t:'RETURN_TO_LOBBY';players:Player[]}
-|{t:'BET_REQUEST';req:BetReq}|{t:'BET_RESULT';id:string;res?:BetResult;err?:string}
-|{t:'CRASH_LIVE';id:string}|{t:'CRASH_CASHOUT';id:string}
-|{t:'WALLET_UPDATE';game:GState}|{t:'TIMER_SYNC';timeLeft:number}|{t:'FLOOR_COMPLETE';game:GState}
-|{t:'UPGRADE_PURCHASE';id:string}|{t:'PAY_DEBT'}|{t:'TAKE_LOAN'}|{t:'VOTE_CAST';yes:boolean}|{t:'SHOP_BUY';id:string;target?:string}|{t:'ERROR';msg:string}
-|{t:'NOTICE';text:string;tone:Tone}
+|{t:'GAME_START';state:unknown}|{t:'GAME_STATE';state:unknown}|{t:'RETURN_TO_LOBBY';players:Player[]}
+/** Player to host. */
+|{t:'ACTION';m:unknown}
+/** Host to everyone, versioned. */
+|{t:'EVENT';m:unknown}
+/** Host to one player, not versioned. */
+|{t:'PRIVATE';m:unknown}
+/** Player to players, not versioned and not checked by the host. For movement and other cosmetic things. */
+|{t:'PEER';m:unknown}
+|{t:'ERROR';msg:string}
 |{t:'CHAT_SEND';text:string}|{t:'CHAT';from:string;text:string}
-|{t:'STATE_SNAPSHOT';players:Player[];hostId:string;status:Status;game:GState|null}
+|{t:'STATE_SNAPSHOT';players:Player[];hostId:string;status:Status;gameId:string;state:unknown}
 /** Every message carries a session id and (host-originated) a monotonically increasing version. */
 export type Env=Msg&{sid:string;v:number}

@@ -1,13 +1,14 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
-import {useApp} from '../../../stores/app'
-import {announceResult,cashOut,newId,sendBet} from '../../../multiplayer/party'
+import {useCasino,useGame} from '../store'
+import {newId} from '../../../multiplayer/party'
+import {announceResult,cashOut,sendBet} from '../net/client'
 import {crashMult,ODDS} from '../mechanics/payouts'
 import {CUP_PAYS,DICE_PAYS,ROULETTE_PAYS,VAULT_PAYS} from '../mechanics/odds'
 import {minBetFor} from '../mechanics/engine'
 import {GAME_LABELS,HOT_WIN,ruleFor} from '../mechanics/floors'
 import {simpleOf} from '../mechanics/simple'
 import {sfx} from '../../../utils/sound'
-import type {BetResult,GameKind} from '../../../types/net'
+import type {BetResult,GameKind} from '../types'
 import {CrashStage,CupsStage,DiceStage,numberColor,REVEAL_MS,RouletteStage,SimpleStage,SlotsStage,VaultStage,WheelStage} from './stages'
 
 const ICONS:Partial<Record<GameKind,string>>={slots:'🎰',roulette:'🎡',dice:'🎲',wheel:'🍀',crash:'🚀',cups:'🥤',vault:'🔐'}
@@ -31,7 +32,7 @@ function Coins(){
  return <div className="coin-rain" aria-hidden="true">{coins.map(c=><span key={c.i} style={{left:`${c.x}%`,animationDelay:`${c.d}s`,animationDuration:`${c.s}s`}}>🪙</span>)}</div>}
 
 export default function Panel({game,onClose}:{game:GameKind;onClose:()=>void}){
- const balance=useApp(s=>s.game?.balance??0),hold=useApp(s=>s.hold),floor=useApp(s=>s.game?.floor??1),event=useApp(s=>s.game?.event??null)
+ const balance=useGame(g=>g?.balance??0),hold=useCasino(s=>s.hold),floor=useGame(g=>g?.floor??1),event=useGame(g=>g?.event??null)
  const [wager,setWagerRaw]=useState(rememberedWager)
  const simple=simpleOf(game)
  const [choice,setChoice]=useState(simple?simple.options[0]!.id:FIRST_CHOICE[game]??'')
@@ -53,7 +54,7 @@ export default function Panel({game,onClose}:{game:GameKind;onClose:()=>void}){
  const reveal=useCallback(()=>{
   const r=unannounced.current;if(!r)return
   unannounced.current=null
-  useApp.setState({hold:0});announceResult(r)},[])
+  useCasino.setState({hold:0});announceResult(r)},[])
  // If the panel goes away mid-animation (the round ended), still report the bet.
  useEffect(()=>()=>reveal(),[reveal])
 
@@ -86,7 +87,7 @@ export default function Panel({game,onClose}:{game:GameKind;onClose:()=>void}){
    if(game==='crash'){setRoll(r.roll);unannounced.current=r;finish(r);return}
    // Hide the outcome from the HUD until the animation lands.
    unannounced.current=r
-   useApp.setState({hold:r.net})
+   useCasino.setState({hold:r.net})
    setRoll(r.roll);setPhase('revealing')
    setTimeout(()=>{if(unannounced.current===r)finish(r)},reduced()?150:REVEAL_MS[game]??SIMPLE_REVEAL_MS)
   }catch(e){setErr(e instanceof Error?e.message:'Bet rejected.');setPhase('idle')}}

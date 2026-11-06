@@ -7,7 +7,7 @@ import type {
   PrankKind,
   Tone,
   VoteKind,
-} from "../../../types/net";
+} from "../types";
 import { GAME_LABELS, HOT_WIN, machinesFor, ruleFor } from "./floors";
 import {
   DARE_WIN_CHANCE,
@@ -37,7 +37,7 @@ export const START_BALANCE = START_CHIPS,
 /** After this floor the team chooses: walk out free, or play one more floor to buy the casino. */
 export const FINAL_FLOOR = 5,
   BUYOUT_MULT = 2;
-/** Fermil's marker: chips now for a bigger debt, once per floor. Each marker also adds to every later floor's debt. */
+/** Janny's marker: chips now for a bigger debt, once per floor. Each marker also adds to every later floor's debt. */
 export const LOAN_CHIPS = 300,
   LOAN_DEBT = 500,
   MARKER_INTEREST = 100;
@@ -539,7 +539,7 @@ export class Ledger {
     const g = this.g,
       kind = this.pick(VOTE_KINDS);
     g.vote = { kind, until: g.timeLeft - VOTE_SECONDS, yes: [], no: [] };
-    return { text: "Fermil wants a team vote", tone: "info" };
+    return { text: "Janny wants a team vote", tone: "info" };
   }
   private roomEvent(): ChaosNews {
     const g = this.g,
@@ -599,7 +599,7 @@ export class Ledger {
     const g = this.g;
     if (kind === "dare") {
       if (!passed)
-        return { text: "The team passed on Fermil's dare", tone: "info" };
+        return { text: "The team passed on Janny's dare", tone: "info" };
       const swing = Math.floor(g.balance * 0.25),
         won = this.rng() < DARE_WIN_CHANCE;
       this.adjust(won ? swing : -swing);

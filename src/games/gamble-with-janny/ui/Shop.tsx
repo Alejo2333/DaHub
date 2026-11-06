@@ -1,6 +1,8 @@
 import {useEffect,useState} from 'react'
 import {useApp} from '../../../stores/app'
-import {buyItem,selfId} from '../../../multiplayer/party'
+import {useCasino,useGame} from '../store'
+import {selfId} from '../../../multiplayer/party'
+import {buyItem} from '../net/client'
 import {itemCost} from '../mechanics/engine'
 import {SHOP_ITEMS,type ItemId,type ShopItem} from '../mechanics/shop'
 import {sfx} from '../../../utils/sound'
@@ -8,12 +10,12 @@ import {sfx} from '../../../utils/sound'
 const ITEMS=Object.entries(SHOP_ITEMS) as [ItemId,ShopItem][]
 
 export default function Shop({onClose}:{onClose:()=>void}){
- const g=useApp(s=>s.game),players=useApp(s=>s.players),toast=useApp(s=>s.toast)
+ const g=useGame(g=>g),players=useApp(s=>s.players),toast=useCasino(s=>s.toast)
  const friends=players.filter(p=>p.id!==selfId)
  const [picked,setPicked]=useState('')
  const target=friends.some(p=>p.id===picked)?picked:friends[0]?.id
  // Once per visit: the app re-renders on every store change, so this can't sit in an effect that depends on onClose.
- useEffect(()=>{useApp.setState({toast:''})},[])
+ useEffect(()=>{useCasino.setState({toast:''})},[])
  useEffect(()=>{
   const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose()}
   window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[onClose])
@@ -23,7 +25,7 @@ export default function Shop({onClose}:{onClose:()=>void}){
   return <li key={id} className="upgrade">
    <span className="upgrade-icon" aria-hidden="true">{item.icon}</span>
    <div className="flex-1"><b>{item.name}</b> <small className="shop-left">{left>0?`${left} left`:'Sold out'}</small><p>{item.desc}</p></div>
-   <button disabled={left<=0||g.balance<cost||noFriend} onClick={()=>{sfx.buy();useApp.setState({toast:''});buyItem(id,item.prank?target:undefined)}} className="btn-buy">{cost.toLocaleString()}</button>
+   <button disabled={left<=0||g.balance<cost||noFriend} onClick={()=>{sfx.buy();useCasino.setState({toast:''});buyItem(id,item.prank?target:undefined)}} className="btn-buy">{cost.toLocaleString()}</button>
   </li>}
  return <div role="dialog" aria-modal="true" aria-label="Sketchy Shop" className="panel-backdrop">
   <div className="panel shop-panel">

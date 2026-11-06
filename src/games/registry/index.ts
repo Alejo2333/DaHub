@@ -1,7 +1,8 @@
 import type { GameModule } from "../../types/game";
-import gambleWithFermil from "../gamble-with-fermil";
-/** Register future games here. The home page, search and game pages are built from this list. */
-export const games: GameModule[] = [gambleWithFermil];
+import gambleWithJanny from "../gamble-with-janny";
+import testGame from "../_template";
+/** Add each game here. The home page, search, game pages and parties all use this list. See "Adding a game" in the README. */
+export const games: GameModule[] = [gambleWithJanny, testGame];
 export const getGame = (id: string) => games.find((g) => g.id === id);
 /** Placeholder tiles so the library doesn't look empty. Delete an entry when a real game takes its place. */
 export const comingSoon: { category: string; icon: string }[] = [

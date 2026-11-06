@@ -1,4 +1,4 @@
-import type { GameKind, VoteKind } from "../../../types/net";
+import type { GameKind, VoteKind } from "../types";
 import { HOT_EVENT_WIN, SHAKEDOWN_ESCAPE_CHANCE } from "./odds";
 import { SIMPLE } from "./simple";
 
@@ -80,7 +80,7 @@ export const VOTES: Record<
   { title: string; desc: (floor: number) => string; yes: string; no: string }
 > = {
   dare: {
-    title: "Fermil's dare",
+    title: "Janny's dare",
     desc: () =>
       "Flip for the wallet: gain 25% or lose 25%. The house has a small edge.",
     yes: "Take the dare",

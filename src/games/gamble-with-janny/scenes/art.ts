@@ -146,8 +146,8 @@ function room(s: Phaser.Scene) {
     c.shadowColor = "#ff4d6d";
     c.shadowBlur = 16;
     c.fillStyle = "#ffe9b0";
-    c.fillText("GAMBLE WITH FERMIL", 170, 34);
-    c.fillText("GAMBLE WITH FERMIL", 170, 34);
+    c.fillText("GAMBLE WITH JANNY", 170, 34);
+    c.fillText("GAMBLE WITH JANNY", 170, 34);
   });
   make(s, "sconce", 20, 30, (c) => {
     rr(c, 8, 12, 4, 14, 2, GOLD_DARK);

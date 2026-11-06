@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SIMPLE_KINDS, type SimpleKind } from "../../../types/net";
+import { SIMPLE_KINDS, type SimpleKind } from "../types";
 import { WHEEL_ORDER } from "../ui/wheelLayout";
 import { newGame, quotaFor } from "./engine";
 import { FLOORS } from "./floors";
@@ -65,7 +65,7 @@ describe("every game favours the house", () => {
     for (const [k, p] of Object.entries(VAULT_PAYS))
       expect(p * VAULT_LOCK_CHANCE ** Number(k.slice(1)), k).toBeLessThan(1);
   });
-  it("Fermil's dare", () => expect(DARE_WIN_CHANCE).toBeLessThan(0.5));
+  it("Janny's dare", () => expect(DARE_WIN_CHANCE).toBeLessThan(0.5));
   it("table games, on every bet", () => {
     for (const k of SIMPLE_KINDS) {
       const g = SIMPLE[k];

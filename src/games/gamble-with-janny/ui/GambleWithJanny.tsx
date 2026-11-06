@@ -1,7 +1,9 @@
 import {useEffect,useRef,useState} from 'react'
 import type Phaser from 'phaser'
-import {bestFloor,positions,saveBest,useApp} from '../../../stores/app'
-import {announceMachine,buyout,buyUpgrade,castVote,isHost,leave,nextFloor,payDebt,returnToLobby,selfId,sendMove,takeLoan,walkAway} from '../../../multiplayer/party'
+import {useApp} from '../../../stores/app'
+import {bestFloor,gameState,positions,saveBest,useCasino,useGame} from '../store'
+import {isHost,leave,returnToLobby,selfId} from '../../../multiplayer/party'
+import {announceMachine,buyout,buyUpgrade,castVote,nextFloor,payDebt,sendMove,takeLoan,walkAway} from '../net/client'
 import {EARLY_BONUS,FINAL_FLOOR,LOAN_CHIPS,LOAN_DEBT,MARKER_INTEREST,minBetFor,paydayFor,upgradeCost,UPGRADES} from '../mechanics/engine'
 import {GAME_LABELS,ruleFor,VOTES} from '../mechanics/floors'
 import {getVol,setVol,sfx} from '../../../utils/sound'
@@ -27,8 +29,8 @@ function useCounter(value:number){
   return()=>cancelAnimationFrame(raf)},[value])
  return shown}
 
-export default function GambleWithFermil(){
- const g=useApp(s=>s.game),players=useApp(s=>s.players),feed=useApp(s=>s.feed),hold=useApp(s=>s.hold),toast=useApp(s=>s.toast),host=isHost()
+export default function GambleWithJanny(){
+ const g=useGame(g=>g),players=useApp(s=>s.players),feed=useCasino(s=>s.feed),hold=useCasino(s=>s.hold),toast=useCasino(s=>s.toast),host=isHost()
  const box=useRef<HTMLDivElement>(null),open=useRef<Station|null>(null)
  const [panel,setPanel]=useState<Station|null>(null),[near,setNear]=useState<Station|null>(null)
  const [loading,setLoading]=useState(true),[vol,setV]=useState(getVol()),[best]=useState(bestFloor())
@@ -45,18 +47,18 @@ export default function GambleWithFermil(){
    if(dead||!box.current)return
    const {name}=useApp.getState()
    game=createCasino(box.current,{selfId,name,
-    blocked:()=>open.current!==null||useApp.getState().game?.phase!=='playing',
+    blocked:()=>open.current!==null||gameState()?.phase!=='playing',
     onInteract:visit,onNear:setNear,onMove:sendMove,
-    reversed:()=>{const g=useApp.getState().game;return !!g?.pranks.some(p=>p.target===selfId&&p.kind==='shoes'&&p.until!==null&&g.timeLeft>p.until)},
+    reversed:()=>{const g=gameState();return !!g?.pranks.some(p=>p.target===selfId&&p.kind==='shoes'&&p.until!==null&&g.timeLeft>p.until)},
     remotes:()=>useApp.getState().players.filter(p=>p.id!==selfId&&positions[p.id]).map(p=>({id:p.id,name:p.name,...positions[p.id]!})),
-    state:()=>useApp.getState().game,fx:()=>useApp.getState().fx,chat:()=>useApp.getState().chat})
+    state:gameState,fx:()=>useCasino.getState().fx,chat:()=>useApp.getState().chat})
    setLoading(false)})
   return()=>{dead=true;game?.destroy(true)}},[])
 
  // A panel doesn't reopen by itself on the next floor.
  useEffect(()=>{if(phase!=='playing')setPanel(null)},[phase])
  useEffect(()=>{
-  if(phase==='upgrades'||phase==='final'||phase==='won'){sfx.floor();useApp.setState({toast:''})}
+  if(phase==='upgrades'||phase==='final'||phase==='won'){sfx.floor();useCasino.setState({toast:''})}
   if(phase==='over')sfx.over()
   if((phase==='over'||phase==='won')&&floor-1>bestFloor())saveBest(floor-1)},[phase,floor])
  useEffect(()=>{if(phase==='playing'&&timeLeft>0&&timeLeft<=10)sfx.alarm()},[phase,timeLeft])
@@ -106,7 +108,7 @@ export default function GambleWithFermil(){
   </header>
   {g.phase==='playing'&&<div className="action-bar">
    {covered&&<button onClick={payDebt} className="btn-pay">Pay the debt now <small>+{g.timeLeft*EARLY_BONUS} early bonus</small></button>}
-   {!g.loanUsed&&<button onClick={()=>{if(!broke&&!window.confirm(`Take ${LOAN_CHIPS} chips now? This adds ${LOAN_DEBT} to this floor's debt and ${MARKER_INTEREST} to every later floor's debt.`))return;takeLoan()}} className={`btn-loan${broke?' btn-urgent':''}`}>🦈 Fermil's marker <small>+{LOAN_CHIPS} now, +{LOAN_DEBT} debt, +{MARKER_INTEREST} later</small></button>}
+   {!g.loanUsed&&<button onClick={()=>{if(!broke&&!window.confirm(`Take ${LOAN_CHIPS} chips now? This adds ${LOAN_DEBT} to this floor's debt and ${MARKER_INTEREST} to every later floor's debt.`))return;takeLoan()}} className={`btn-loan${broke?' btn-urgent':''}`}>🦈 Janny's marker <small>+{LOAN_CHIPS} now, +{LOAN_DEBT} debt, +{MARKER_INTEREST} later</small></button>}
   </div>}
   {!panel&&g.phase==='playing'&&near&&<button className="play-prompt" onClick={()=>visit(near)}><kbd>E</kbd> {near==='shop'?'Visit the Sketchy Shop':`Play ${GAME_LABELS[near]}`}</button>}
   {!panel&&g.phase==='playing'&&!near&&<p className="controls-hint">WASD or arrows to walk · click or tap to move · E to play · Enter to chat</p>}
@@ -131,7 +133,7 @@ export default function GambleWithFermil(){
   {g.phase==='upgrades'&&<div className="modal-backdrop"><div className="modal modal-win">
    <div className="modal-medal" aria-hidden="true">🏆</div>
    <h2>Floor {g.floor-1} cleared</h2>
-   <p className="modal-sub">Debt paid.{g.bonus>0&&<b className="text-emerald-300"> +{g.bonus} early bonus.</b>}{g.payday>0&&<b className="text-emerald-300"> +{g.payday.toLocaleString()} payday from Fermil.</b>} Next debt <b>{g.quota.toLocaleString()}</b> · Wallet <b>{g.balance.toLocaleString()}</b></p>
+   <p className="modal-sub">Debt paid.{g.bonus>0&&<b className="text-emerald-300"> +{g.bonus} early bonus.</b>}{g.payday>0&&<b className="text-emerald-300"> +{g.payday.toLocaleString()} payday from Janny.</b>} Next debt <b>{g.quota.toLocaleString()}</b> · Wallet <b>{g.balance.toLocaleString()}</b></p>
    <p className="next-floor"><b>Floor {g.floor}: {rule.name}.</b> {rule.desc} Games: {rule.games.map(m=>GAME_LABELS[m]).join(', ')}.</p>
    <ul className="upgrade-list">{Object.entries(UPGRADES).map(([id,u])=>{const n=g.upgrades[id]??0,cost=upgradeCost(id,g.floor);return <li key={id} className="upgrade">
     <span className="upgrade-icon" aria-hidden="true">{u.icon}</span>
@@ -143,7 +145,7 @@ export default function GambleWithFermil(){
 
   {final&&<div className="modal-backdrop"><div className="modal modal-win">
    <div className="modal-medal" aria-hidden="true">🎩</div>
-   <h2>Fermil's offer</h2>
+   <h2>Janny's offer</h2>
    <p className="modal-sub">Every debt is paid. Walk out free with <b>{g.balance.toLocaleString()}</b> chips, or play one more floor{paydayFor(g.floor)>0&&<> with a <b>{paydayFor(g.floor).toLocaleString()}</b> payday</>} and buy the casino for <b>{g.quota.toLocaleString()}</b>. Fall short and you lose everything.</p>
    {host?<div className="mt-3 flex flex-col gap-2">
     <button onClick={walkAway} className="btn-primary">Walk out free</button>
@@ -154,7 +156,7 @@ export default function GambleWithFermil(){
   {g.phase==='won'&&<div className="modal-backdrop"><div className="modal modal-win">
    <div className="modal-medal" aria-hidden="true">{g.ending==='owner'?'👑':'🚪'}</div>
    <h2>{g.ending==='owner'?'The casino is yours':'You walked out free'}</h2>
-   <p className="modal-sub">{g.ending==='owner'?'Fermil hands over the keys. The house is finally on your side.':`You left with ${g.balance.toLocaleString()} chips and no debt.`}</p>
+   <p className="modal-sub">{g.ending==='owner'?'Janny hands over the keys. The house is finally on your side.':`You left with ${g.balance.toLocaleString()} chips and no debt.`}</p>
    {runStats}
   </div></div>}
 

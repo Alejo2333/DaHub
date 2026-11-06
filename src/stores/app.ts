@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { BetResult, GState, Player, Status, Tone } from "../types/net";
+import type { Player, Status } from "../types/net";
 const ls = (k: string, d: string) => {
   try {
     return localStorage.getItem(k) ?? d;
@@ -7,53 +7,39 @@ const ls = (k: string, d: string) => {
     return d;
   }
 };
-export interface FeedItem {
-  id: number;
-  text: string;
-  tone: Tone;
-}
-/** A finished bet for the casino scene to celebrate. `n` changes each time so the scene can spot new ones. */
-export interface Fx {
-  n: number;
-  result: BetResult;
-}
-/** `id` only ever increases, so the casino scene can spot new messages. */
+/** `id` only ever increases, so a game scene can spot new messages. */
 export interface ChatLine {
   id: number;
   from: string;
   name: string;
   text: string;
 }
+/** The party's state, which every game shares. A game keeps its own extras in its own store. */
 export interface S {
   name: string;
   code: string;
+  /** The game this party is playing. Empty until a joining player hears from the host. */
+  gameId: string;
   hostId: string;
   players: Player[];
   status: Status;
   error: string;
   sid: string;
-  game: GState | null;
-  feed: FeedItem[];
+  /** The running game's state, from its `HostGame.state()`. Each game casts it to its own type. */
+  gameState: unknown;
   chat: ChatLine[];
-  fx: Fx | null;
-  toast: string;
-  /** Net result of a bet whose animation is still playing, hidden from the HUD so it doesn't spoil the outcome. */
-  hold: number;
 }
 export const useApp = create<S>(() => ({
   name: ls("hub-name", "Player" + Math.floor(Math.random() * 900 + 100)),
   code: "",
+  gameId: "",
   hostId: "",
   players: [],
   status: "idle",
   error: "",
   sid: "",
-  game: null,
-  feed: [],
+  gameState: null,
   chat: [],
-  fx: null,
-  toast: "",
-  hold: 0,
 }));
 export const saveName = (n: string) => {
   try {
@@ -62,17 +48,4 @@ export const saveName = (n: string) => {
     /* ignore */
   }
   useApp.setState({ name: n });
-};
-/** Non-reactive remote player positions (updated at ~10Hz, read by Phaser). */
-export const positions: Record<string, { x: number; y: number }> = {};
-export const bestFloor = () => {
-  const n = Number(ls("hub-best", "0"));
-  return Number.isFinite(n) ? n : 0;
-};
-export const saveBest = (n: number) => {
-  try {
-    localStorage.setItem("hub-best", String(n));
-  } catch {
-    /* ignore */
-  }
 };

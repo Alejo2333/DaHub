@@ -1,90 +1,76 @@
 import { openRoom, relayConnected, selfId, type Room } from "./room";
 import { parseEnv } from "./validate";
-import { positions, useApp } from "../stores/app";
-import {
-  Ledger,
-  type ChaosNews,
-} from "../games/gamble-with-fermil/mechanics/engine";
-import { crashMs } from "../games/gamble-with-fermil/mechanics/payouts";
-import {
-  SHOP_ITEMS,
-  type ItemId,
-} from "../games/gamble-with-fermil/mechanics/shop";
-import type { BetReq, BetResult, Env, GameKind, Msg, Tone } from "../types/net";
+import { useApp } from "../stores/app";
+import type { GameModule, HostContext, HostGame } from "../types/game";
+import type { Env, Msg } from "../types/net";
 export { selfId };
-export const MAX_PLAYERS = 6;
 export const MAX_CHAT = 120;
 const CHAT_GAP = 400,
   CHAT_HISTORY = 50;
-const BET_TIMEOUT = 8000,
-  FLIGHT_TIMEOUT = 60000,
-  JOIN_TIMEOUT = 30000;
-interface Pending {
-  resolve: (r: BetResult) => void;
-  reject: (e: Error) => void;
-  onLive?: () => void;
-  timer: ReturnType<typeof setTimeout>;
-}
+const JOIN_TIMEOUT = 30000;
+/**
+ * Rooms, the roster, ready checks, chat, sessions and message versions, for any game.
+ * Nothing in this folder imports from `games/`: the running game is passed in and reached through `GameModule.net`.
+ */
+type FindGame = (id: string) => GameModule | undefined;
 let room: Room | null = null,
   v = 0,
   lastV = -1,
-  ledger: Ledger | null = null,
-  feedId = 0,
   chatId = 0,
-  fxN = 0;
-let ticker: ReturnType<typeof setInterval> | undefined,
-  jt: ReturnType<typeof setTimeout> | undefined;
-const pending = new Map<string, Pending>(),
-  flightTimers = new Map<string, ReturnType<typeof setTimeout>>(),
-  lastChat = new Map<string, number>();
+  /** The game this party plays. */
+  active: GameModule | null = null,
+  findGame: FindGame | null = null,
+  /** The authoritative game. Only the host has one, and only during a game. */
+  host: HostGame<unknown, unknown> | null = null,
+  /** Whether this client's `onStart` has run without its `onStop`. */
+  clientOn = false;
+let jt: ReturnType<typeof setTimeout> | undefined;
+const lastChat = new Map<string, number>();
 const st = useApp.getState,
   set = useApp.setState;
 export const isHost = () => st().hostId === selfId;
 export const newId = () => crypto.randomUUID();
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
-const nameOf = (id: string) =>
+export const nameOf = (id: string) =>
   id === selfId
     ? st().name
     : (st().players.find((p) => p.id === id)?.name ?? "Someone");
-export const addFeed = (text: string, tone: Tone = "info") =>
-  set((s) => ({ feed: [{ id: ++feedId, text, tone }, ...s.feed].slice(0, 6) }));
-/** Fires the casino effects and feed line for a finished bet. The bettor's own panel calls this once its animation lands. */
-export function announceResult(r: BetResult) {
-  addFeed(
-    `${nameOf(r.from)} · ${r.game}: ${r.net >= 0 ? "+" : ""}${r.net}`,
-    r.net > 0 ? "win" : r.net < 0 ? "lose" : "info",
-  );
-  set({ fx: { n: ++fxN, result: r } });
-}
 
-/** Settles the promise returned by sendBet. Unknown ids are ignored. */
-function settle(id: string, res: BetResult | null, err?: string) {
-  const p = pending.get(id);
-  if (!p) return;
-  pending.delete(id);
-  clearTimeout(p.timer);
-  if (res) p.resolve(res);
-  else p.reject(new Error(err ?? "Bet rejected."));
+function startClient() {
+  if (clientOn) return;
+  clientOn = true;
+  active?.net.client?.onStart?.();
 }
-function clearFlightTimers() {
-  for (const t of flightTimers.values()) clearTimeout(t);
-  flightTimers.clear();
+function stopClient() {
+  if (!clientOn) return;
+  clientOn = false;
+  active?.net.client?.onStop?.();
+}
+function stopGame() {
+  host?.dispose();
+  host = null;
+  stopClient();
 }
 const fail = (error: string) => {
   cleanup();
-  set({ status: "error", error, game: null, players: [], hostId: "", sid: "" });
+  set({
+    status: "error",
+    error,
+    gameId: "",
+    gameState: null,
+    players: [],
+    hostId: "",
+    sid: "",
+  });
 };
 function cleanup() {
-  clearInterval(ticker);
   clearTimeout(jt);
-  clearFlightTimers();
+  stopGame();
   lastChat.clear();
-  for (const id of [...pending.keys()])
-    settle(id, null, "Disconnected from the party.");
   room?.leave();
   room = null;
-  ledger = null;
-  for (const k of Object.keys(positions)) delete positions[k];
+  active = null;
+  findGame = null;
 }
 /** Host broadcast: bumps the version, sends to peers, then applies locally through the same code path. */
 function bc(m: Msg) {
@@ -99,10 +85,11 @@ const snap = () =>
     players: st().players,
     hostId: st().hostId,
     status: st().status,
-    game: ledger?.g ?? null,
+    gameId: st().gameId,
+    state: host?.state() ?? null,
   });
 function priv(to: string, m: Msg) {
-  const e = { ...m, sid: st().sid, v: 0 } as Env;
+  const e = { ...clone(m), sid: st().sid, v: 0 } as Env;
   if (to === selfId) handle(e, selfId);
   else room?.send(e, to);
 }
@@ -111,6 +98,17 @@ function toHost(m: Msg, run: () => void) {
   if (isHost()) run();
   else room?.send({ ...m, sid: st().sid, v: 0 } as Env, st().hostId);
 }
+/** What the running game's host logic uses to reach the players. */
+const hostContext: HostContext<unknown> = {
+  selfId,
+  players: () => st().players,
+  nameOf,
+  publish: () => {
+    if (host) bc({ t: "GAME_STATE", state: host.state() });
+  },
+  emit: (m) => bc({ t: "EVENT", m }),
+  sendTo: (id, m) => priv(id, { t: "PRIVATE", m }),
+};
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const newCode = () =>
@@ -123,22 +121,18 @@ export const cleanCode = (c: string) =>
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 8);
 
-export function connect(role: "host" | "join", name: string, code?: string) {
-  cleanup();
+function open(name: string, code: string, role: "host" | "join") {
   v = 0;
   lastV = -1;
-  const c = cleanCode(code ?? newCode());
+  const c = cleanCode(code);
   set({
     name,
     code: c,
     error: "",
     sid: "",
-    game: null,
-    feed: [],
+    gameId: active?.id ?? "",
+    gameState: null,
     chat: [],
-    fx: null,
-    toast: "",
-    hold: 0,
     players: [],
     hostId: role === "host" ? selfId : "",
     status: "connecting",
@@ -153,20 +147,32 @@ export function connect(role: "host" | "join", name: string, code?: string) {
       },
       onLeave,
     );
+    return true;
   } catch (e) {
-    return fail("Could not open the room: " + String(e));
+    fail("Could not open the room: " + String(e));
+    return false;
   }
-  if (role === "host")
+}
+/** Opens a new party for this game, with this client as the host. */
+export function hostParty(game: GameModule, name: string) {
+  cleanup();
+  active = game;
+  if (open(name, newCode(), "host"))
     set({ players: [{ id: selfId, name, ready: true }], status: "lobby" });
-  else
-    jt = setTimeout(() => {
-      if (st().status === "connecting")
-        fail(
-          relayConnected()
-            ? "No host answered. Check the room code and that the host still has the party page open (refreshing it ends the party). If both are right, your network may be blocking the connection."
-            : "Could not reach the matchmaking servers. Check your connection or disable any VPN or ad blocker.",
-        );
-    }, JOIN_TIMEOUT);
+}
+/** Joins a party by code. The host says which game it's playing, and `find` looks it up (normally `getGame` from the registry). */
+export function joinParty(code: string, name: string, find: FindGame) {
+  cleanup();
+  findGame = find;
+  if (!open(name, code, "join")) return;
+  jt = setTimeout(() => {
+    if (st().status === "connecting")
+      fail(
+        relayConnected()
+          ? "No host answered. Check the room code and that the host still has the party page open (refreshing it ends the party). If both are right, your network may be blocking the connection."
+          : "Could not reach the matchmaking servers. Check your connection or disable any VPN or ad blocker.",
+      );
+  }, JOIN_TIMEOUT);
 }
 export const leave = () => {
   cleanup();
@@ -174,24 +180,22 @@ export const leave = () => {
     status: "idle",
     players: [],
     hostId: "",
-    game: null,
+    gameId: "",
+    gameState: null,
     sid: "",
     code: "",
-    hold: 0,
   });
 };
 function onLeave(id: string) {
-  delete positions[id];
+  if (clientOn) active?.net.client?.onPlayerLeave?.(id);
   if (!isHost()) {
     if (id === st().hostId) fail("The host left, so this session has ended.");
     return;
   }
   if (!st().players.some((p) => p.id === id)) return;
-  const name = nameOf(id);
-  if (ledger) publish(ledger.cashAll(id));
+  host?.onPlayerLeave?.(id);
   set((s) => ({ players: s.players.filter((p) => p.id !== id) }));
   bc({ t: "PLAYER_LEAVE", id });
-  bc({ t: "NOTICE", text: `${name} left the party`, tone: "info" });
   snap();
 }
 export function setReady(ready: boolean) {
@@ -200,100 +204,38 @@ export function setReady(ready: boolean) {
 }
 export function startGame() {
   const s = st();
-  if (!isHost() || s.status !== "lobby" || !s.players.every((p) => p.ready))
+  if (
+    !isHost() ||
+    !active ||
+    s.status !== "lobby" ||
+    s.players.length < active.minPlayers ||
+    !s.players.every((p) => p.ready)
+  )
     return;
-  ledger = new Ledger();
   set({ sid: newId(), status: "playing" });
-  bc({ t: "GAME_START", game: ledger.g });
-  clearInterval(ticker);
-  ticker = setInterval(hostTick, 1000);
-}
-function hostTick() {
-  if (!ledger) return;
-  // Flights can't outlive the round, so they cash out on its final second.
-  if (ledger.g.phase === "playing" && ledger.g.timeLeft <= 1)
-    publish(ledger.cashAll());
-  if (ledger.g.phase !== "playing") return;
-  const r = ledger.tick();
-  if (r === "floor") bc({ t: "FLOOR_COMPLETE", game: ledger.g });
-  else if (r === "over") bc({ t: "GAME_END", game: ledger.g });
-  else {
-    bc({ t: "TIMER_SYNC", timeLeft: ledger.g.timeLeft });
-    announceChaos(ledger.chaosTick(st().players.length));
-  }
-}
-/** Sends the wallet (or game over, if the chaos broke the team), then the feed line. */
-function announceChaos(news: ChaosNews | null) {
-  if (!news) return;
-  afterWallet();
-  bc({ t: "NOTICE", text: news.text, tone: news.tone });
-}
-/** Pranks are anonymous on purpose: the team sees who got hit, not who paid for it. */
-function hostShop(from: string, id: string, target?: string) {
-  if (!ledger) return;
-  if (target !== undefined && !st().players.some((p) => p.id === target))
-    return priv(from, {
-      t: "BET_RESULT",
-      id: "upgrade",
-      err: "That player is not here.",
-    });
-  const err = ledger.buyItem(id, from, target);
-  if (err) return priv(from, { t: "BET_RESULT", id: "upgrade", err });
-  afterWallet();
-  const item = SHOP_ITEMS[id as ItemId];
-  bc(
-    item.prank
-      ? {
-          t: "NOTICE",
-          text: `Someone slipped ${nameOf(target!)} a ${item.name}!`,
-          tone: "lose",
-        }
-      : {
-          t: "NOTICE",
-          text: `${nameOf(from)} bought ${item.name} from the dealer`,
-          tone: "win",
-        },
-  );
-}
-function hostVote(from: string, yes: boolean) {
-  if (!ledger?.castVote(from, yes)) return;
-  const news = ledger.decideVote(st().players.length);
-  if (news) announceChaos(news);
-  else afterWallet();
+  host = active.net.createHost(hostContext);
+  bc({ t: "GAME_START", state: host.state() });
 }
 export function returnToLobby() {
   if (!isHost()) return;
-  clearInterval(ticker);
-  clearFlightTimers();
-  ledger = null;
+  host?.dispose();
+  host = null;
   const players = st().players.map((p) => ({ ...p, ready: p.id === selfId }));
   set({ players, status: "lobby" });
   bc({ t: "RETURN_TO_LOBBY", players });
   set({ sid: "" });
 }
 
-/** Places a bet. Resolves with the result, or rejects with a message to show the player. For crash, `onLive` fires when the flight starts. */
-export function sendBet(req: BetReq, onLive?: () => void): Promise<BetResult> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => settle(req.id, null, "The host did not respond. Try again."),
-      BET_TIMEOUT,
-    );
-    pending.set(req.id, { resolve, reject, onLive, timer });
-    toHost({ t: "BET_REQUEST", req }, () => hostBet(selfId, req));
-  });
+/** Asks the host to do something for the running game. The host's `onAction` decides whether it's allowed. */
+export function sendAction<Action>(action: Action) {
+  toHost({ t: "ACTION", m: action }, () => host?.onAction(selfId, action));
 }
-export const cashOut = (id: string) =>
-  toHost({ t: "CRASH_CASHOUT", id }, () => hostCash(selfId, id));
-export const buyUpgrade = (id: string) =>
-  toHost({ t: "UPGRADE_PURCHASE", id }, () => hostBuy(selfId, id));
-export const payDebt = () => toHost({ t: "PAY_DEBT" }, () => hostPay(selfId));
-export const takeLoan = () =>
-  toHost({ t: "TAKE_LOAN" }, () => hostLoan(selfId));
-export const castVote = (yes: boolean) =>
-  toHost({ t: "VOTE_CAST", yes }, () => hostVote(selfId, yes));
-export const buyItem = (id: string, target?: string) =>
-  toHost({ t: "SHOP_BUY", id, target }, () => hostShop(selfId, id, target));
+/** Sends straight to the other players, for cosmetic things like movement. The host doesn't check these, and they aren't sent back to you. */
+export function sendToPeers<Peer>(message: Peer) {
+  if (st().status === "playing")
+    room?.send({ t: "PEER", m: message, sid: st().sid, v: 0 });
+}
+
 /** Removes control characters and limits the length, without cutting an emoji in half. */
 const cleanChat = (text: string) =>
   [...text.replace(/[\u0000-\u001f\u007f]/g, " ").trim()]
@@ -313,141 +255,28 @@ function hostChat(from: string, text: string) {
   lastChat.set(from, now);
   bc({ t: "CHAT", from, text: clean });
 }
-export function nextFloor() {
-  if (isHost() && ledger?.nextFloor())
-    bc({ t: "WALLET_UPDATE", game: ledger.g });
-}
-export function walkAway() {
-  if (isHost() && ledger?.walkAway()) bc({ t: "GAME_END", game: ledger.g });
-}
-export function buyout() {
-  if (isHost() && ledger?.buyout()) bc({ t: "WALLET_UPDATE", game: ledger.g });
-}
-export function sendMove(x: number, y: number) {
-  if (st().status === "playing")
-    room?.send({ t: "PLAYER_MOVE", x, y, sid: st().sid, v: 0 });
-}
-export function announceMachine(machine: GameKind) {
-  if (st().status !== "playing") return;
-  room?.send({ t: "MACHINE_INTERACT", machine, sid: st().sid, v: 0 });
-  addFeed(`${st().name} sat at ${machine}`);
-}
-
-/** Broadcasts finished bets, then the wallet, then game over if those bets ended the run. */
-function publish(results: BetResult[]) {
-  if (!ledger || !results.length) return;
-  for (const res of results) {
-    clearTimeout(flightTimers.get(res.id));
-    flightTimers.delete(res.id);
-    bc({ t: "BET_RESULT", id: res.id, res });
-  }
-  afterWallet();
-}
-function afterWallet() {
-  if (!ledger) return;
-  bc({
-    t: ledger.g.phase === "over" ? "GAME_END" : "WALLET_UPDATE",
-    game: ledger.g,
-  });
-}
-function hostBet(from: string, req: BetReq) {
-  if (!ledger)
-    return priv(from, {
-      t: "BET_RESULT",
-      id: req.id,
-      err: "The round is not active.",
-    });
-  if (req.game === "crash") {
-    const { flight, err } = ledger.launch(req, from);
-    if (!flight)
-      return priv(from, {
-        t: "BET_RESULT",
-        id: req.id,
-        err: err ?? "Bet rejected.",
-      });
-    priv(from, { t: "CRASH_LIVE", id: flight.id });
-    flightTimers.set(
-      flight.id,
-      setTimeout(() => {
-        const res = ledger?.bust(flight.id);
-        if (res) publish([res]);
-      }, crashMs(flight.point)),
-    );
-    afterWallet();
-    return;
-  }
-  const { res, err } = ledger.bet(req, from);
-  if (!res)
-    return priv(from, {
-      t: "BET_RESULT",
-      id: req.id,
-      err: err ?? "Bet rejected.",
-    });
-  res.from = from;
-  publish([res]);
-}
-function hostCash(from: string, id: string) {
-  if (!ledger) return;
-  const { res } = ledger.cashOut(id, from); // No flight means it already crashed, and the bettor has been told.
-  if (res) publish([res]);
-}
-function hostBuy(from: string, id: string) {
-  if (!ledger) return;
-  const err = ledger.buy(id);
-  if (err) return priv(from, { t: "BET_RESULT", id: "upgrade", err });
-  bc({ t: "WALLET_UPDATE", game: ledger.g });
-  bc({ t: "NOTICE", text: `${nameOf(from)} bought an upgrade`, tone: "info" });
-}
-function hostPay(from: string) {
-  if (
-    !ledger ||
-    ledger.g.phase !== "playing" ||
-    ledger.g.balance < ledger.g.quota
-  )
-    return;
-  publish(ledger.cashAll());
-  const bonus = ledger.payDebt();
-  if (bonus === null) return;
-  bc({ t: "FLOOR_COMPLETE", game: ledger.g });
-  bc({
-    t: "NOTICE",
-    text: `${nameOf(from)} paid the debt early · +${bonus} bonus`,
-    tone: "win",
-  });
-}
-function hostLoan(from: string) {
-  if (!ledger?.takeLoan()) return;
-  bc({ t: "WALLET_UPDATE", game: ledger.g });
-  bc({
-    t: "NOTICE",
-    text: `${nameOf(from)} took Fermil's marker`,
-    tone: "lose",
-  });
-}
 
 function onRecv(raw: unknown, from: string) {
   const e = parseEnv(raw);
   if (e) handle(e, from);
 }
 function handle(e: Env, from: string) {
-  const s = st();
-  if (e.t === "PLAYER_MOVE") {
-    if (e.sid === s.sid && from !== selfId)
-      positions[from] = { x: e.x, y: e.y };
-    return;
-  }
-  if (e.t === "MACHINE_INTERACT") {
-    if (e.sid === s.sid) addFeed(`${nameOf(from)} sat at ${e.machine}`);
+  const s = st(),
+    net = active?.net;
+  if (e.t === "PEER") {
+    if (e.sid === s.sid && from !== selfId && clientOn && net?.isPeer?.(e.m))
+      net.client?.onPeer?.(from, e.m);
     return;
   }
   if (isHost() && from !== selfId) {
     // inbound requests, host only
     if (e.t === "PLAYER_JOIN") {
       if (s.players.some((p) => p.id === from)) return;
-      if (s.players.length >= MAX_PLAYERS)
+      const max = active?.maxPlayers ?? 0;
+      if (s.players.length >= max)
         return priv(from, {
           t: "ERROR",
-          msg: `This party is full (${MAX_PLAYERS}/${MAX_PLAYERS}).`,
+          msg: `This party is full (${max}/${max}).`,
         });
       set({
         players: [
@@ -475,26 +304,8 @@ function handle(e: Env, from: string) {
       case "CHAT_SEND":
         hostChat(from, e.text);
         return;
-      case "BET_REQUEST":
-        if (e.sid === s.sid) hostBet(from, e.req);
-        return;
-      case "CRASH_CASHOUT":
-        if (e.sid === s.sid) hostCash(from, e.id);
-        return;
-      case "UPGRADE_PURCHASE":
-        if (e.sid === s.sid) hostBuy(from, e.id);
-        return;
-      case "PAY_DEBT":
-        if (e.sid === s.sid) hostPay(from);
-        return;
-      case "TAKE_LOAN":
-        if (e.sid === s.sid) hostLoan(from);
-        return;
-      case "VOTE_CAST":
-        if (e.sid === s.sid) hostVote(from, e.yes);
-        return;
-      case "SHOP_BUY":
-        if (e.sid === s.sid) hostShop(from, e.id, e.target);
+      case "ACTION":
+        if (e.sid === s.sid && net?.isAction(e.m)) host?.onAction(from, e.m);
         return;
     }
     return;
@@ -512,26 +323,27 @@ function handle(e: Env, from: string) {
     fail(e.msg);
     return;
   }
-  if (e.t === "BET_RESULT" && e.err) {
-    if (e.id === "upgrade") set({ toast: e.err });
-    else settle(e.id, null, e.err);
-    return;
-  }
-  if (e.t === "CRASH_LIVE") {
-    pending.get(e.id)?.onLive?.();
-    const p = pending.get(e.id);
-    if (p) {
-      clearTimeout(p.timer);
-      p.timer = setTimeout(
-        () => settle(e.id, null, "Lost contact with the host."),
-        FLIGHT_TIMEOUT,
-      );
-    }
+  if (e.t === "PRIVATE") {
+    if (e.sid === s.sid && clientOn && isEvent(e.m, from))
+      net?.client?.onEvent?.(e.m);
     return;
   }
   if (e.v <= lastV) return; // stale or duplicate
   if (e.t !== "STATE_SNAPSHOT" && e.t !== "GAME_START" && e.sid !== s.sid)
     return; // other session
+  if (e.t === "STATE_SNAPSHOT") {
+    if (joining) {
+      active = findGame?.(e.gameId) ?? null;
+      if (!active)
+        return fail(
+          "This party is playing a game your copy of the site doesn't have. Refresh the page and try again.",
+        );
+    } else if (e.gameId !== s.gameId) return;
+    if (e.state !== null && !isState(e.state, from)) return;
+  }
+  if ((e.t === "GAME_START" || e.t === "GAME_STATE") && !isState(e.state, from))
+    return;
+  if (e.t === "EVENT" && !isEvent(e.m, from)) return;
   lastV = e.v;
   switch (e.t) {
     case "STATE_SNAPSHOT":
@@ -541,41 +353,22 @@ function handle(e: Env, from: string) {
         hostId: e.hostId,
         status: e.status,
         sid: e.sid,
-        game: e.game,
+        gameId: e.gameId,
+        gameState: e.state,
       });
+      if (e.status === "playing") startClient();
+      else stopClient();
       break;
     case "GAME_START":
-      set({
-        sid: e.sid,
-        status: "playing",
-        game: e.game,
-        feed: [],
-        fx: null,
-        toast: "",
-        hold: 0,
-      });
-      for (const k of Object.keys(positions)) delete positions[k];
+      stopClient();
+      set({ sid: e.sid, status: "playing", gameState: e.state });
+      startClient();
       break;
-    case "WALLET_UPDATE":
-    case "FLOOR_COMPLETE":
-    case "GAME_END":
-      set({ game: e.game });
+    case "GAME_STATE":
+      set({ gameState: e.state });
       break;
-    case "TIMER_SYNC":
-      set((x) => ({
-        game: x.game ? { ...x.game, timeLeft: e.timeLeft } : null,
-      }));
-      break;
-    case "BET_RESULT":
-      if (e.res) {
-        const r = e.res;
-        // The bettor's panel announces its own result when the animation finishes.
-        if (pending.has(r.id)) settle(r.id, r);
-        else if (r.from !== selfId) announceResult(r);
-      }
-      break;
-    case "NOTICE":
-      addFeed(e.text, e.tone);
+    case "EVENT":
+      if (clientOn) active?.net.client?.onEvent?.(e.m);
       break;
     case "CHAT": {
       const line = {
@@ -591,16 +384,15 @@ function handle(e: Env, from: string) {
       set((x) => ({ players: x.players.filter((p) => p.id !== e.id) }));
       break;
     case "RETURN_TO_LOBBY":
-      set({
-        status: "lobby",
-        game: null,
-        sid: "",
-        players: e.players,
-        fx: null,
-        hold: 0,
-      });
+      stopClient();
+      set({ status: "lobby", gameState: null, sid: "", players: e.players });
       break;
   }
 }
+/** The host's own messages were built by its own game, so only other people's need checking. */
+const isState = (x: unknown, from: string) =>
+  from === selfId || !!active?.net.isState(x);
+const isEvent = (x: unknown, from: string) =>
+  from === selfId || !!active?.net.isEvent?.(x);
 if (typeof window !== "undefined")
   window.addEventListener("beforeunload", () => room?.leave());

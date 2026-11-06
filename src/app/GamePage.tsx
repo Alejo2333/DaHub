@@ -16,7 +16,7 @@ export default function GamePage({game,canPlay,onCreate,onBack}:{game:GameModule
      {best&&<span className="tag tag-best">{best}</span>}
     </div>
     <button onClick={onCreate} disabled={!canPlay} className="btn-primary btn-fit">Create party</button>
-    <p className="hint">{canPlay?'You get a room code and invite link to share. You can also play alone.':'Enter a nickname at the top of the page to play.'}</p>
+    <p className="hint">{canPlay?'You get a room code and invite link to share.'+(game.minPlayers<=1?' You can also play alone.':''):'Enter a nickname at the top of the page to play.'}</p>
    </div></div>
   <div className="game-page-details">
    <section><h2 className="section-title">How to play</h2><ol className="how-list">{game.howTo.map(s=><li key={s}>{s}</li>)}</ol></section>

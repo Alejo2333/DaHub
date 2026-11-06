@@ -1,7 +1,8 @@
 import {Suspense,useEffect,useState} from 'react'
 import {saveName,useApp} from '../stores/app'
-import {cleanCode,connect,leave} from '../multiplayer/party'
-import {games,getGame} from '../games/registry'
+import {cleanCode,hostParty,joinParty,leave} from '../multiplayer/party'
+import {getGame} from '../games/registry'
+import type {GameModule} from '../types/game'
 import GamePage from './GamePage'
 import Home from './Home'
 import Lobby from './Lobby'
@@ -26,7 +27,7 @@ export default function App(){
  const [path,setPath]=useState(location.pathname),[search,setSearch]=useState('')
  const navigate=(p:string)=>{history.pushState(null,'',p);setPath(p)}
  const hasName=s.name.trim().length>0
- useEffect(()=>{const c=codeFromUrl();if(c&&useApp.getState().status==='idle')connect('join',useApp.getState().name,c)},[])
+ useEffect(()=>{const c=codeFromUrl();if(c&&useApp.getState().status==='idle')joinParty(c,useApp.getState().name,getGame)},[])
  useEffect(()=>{
   const onPop=()=>{
    setPath(location.pathname)
@@ -34,14 +35,13 @@ export default function App(){
    const st=useApp.getState().status
    if(!codeFromUrl()&&(st==='lobby'||st==='connecting'))leave()}
   window.addEventListener('popstate',onPop);return()=>window.removeEventListener('popstate',onPop)},[])
- const create=()=>{connect('host',s.name);navigate('/party/'+useApp.getState().code)}
- const join=(c:string)=>{connect('join',s.name,c);navigate('/party/'+useApp.getState().code)}
+ const create=(game:GameModule)=>{hostParty(game,s.name);navigate('/party/'+useApp.getState().code)}
+ const join=(c:string)=>{joinParty(c,s.name,getGame);navigate('/party/'+useApp.getState().code)}
  const exit=()=>{leave();navigate('/')}
  const home=()=>{setSearch('');navigate('/')}
 
- // Parties always run the first registered game until the party protocol carries a game id.
- const partyGame=games[0]!
- if(s.status==='playing'&&s.game)return <Suspense fallback={<div className="loading-screen"><div className="spinner-chip"/>Loading game…</div>}><partyGame.Component/></Suspense>
+ const partyGame=getGame(s.gameId)
+ if(s.status==='playing'&&s.gameState&&partyGame)return <Suspense fallback={<div className="loading-screen"><div className="spinner-chip"/>Loading game…</div>}><partyGame.Component/></Suspense>
  const browsing=s.status==='idle'||s.status==='error'
  const openGame=gameIdFrom(path)?getGame(gameIdFrom(path)!):undefined
  return <div className="hub">
@@ -56,8 +56,8 @@ export default function App(){
   <main className="hub-main">
    {s.status==='error'&&<div role="alert" className="error-card"><p>{s.error}</p><button onClick={exit} className="btn-ghost">Dismiss</button></div>}
    {browsing&&(openGame
-    ?<GamePage game={openGame} canPlay={hasName} onCreate={create} onBack={home}/>
+    ?<GamePage game={openGame} canPlay={hasName} onCreate={()=>create(openGame)} onBack={home}/>
     :<Home search={search} onOpen={id=>navigate('/game/'+id)}/>)}
    {s.status==='connecting'&&<div role="status" className="connecting"><div className="spinner-chip"/><p>Finding party <b>{s.code}</b>…</p><button onClick={exit} className="btn-ghost">Cancel</button></div>}
-   {s.status==='lobby'&&<Lobby game={partyGame} code={s.code} players={s.players} hostId={s.hostId} onExit={exit}/>}
+   {s.status==='lobby'&&partyGame&&<Lobby game={partyGame} code={s.code} players={s.players} hostId={s.hostId} onExit={exit}/>}
   </main></div>}

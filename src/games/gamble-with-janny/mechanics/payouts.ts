@@ -1,4 +1,4 @@
-import type { BetReq, GameKind } from "../../../types/net";
+import type { BetReq, GameKind } from "../types";
 import {
   CRASH,
   CUP_PAYS,

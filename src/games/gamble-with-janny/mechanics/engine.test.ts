@@ -2,7 +2,7 @@ import {describe,expect,it,vi} from 'vitest'
 import {CHAOS_CUTOFF,EARLY_BONUS,FINAL_FLOOR,FIRST_CHAOS,itemCost,Ledger,LOAN_CHIPS,LOAN_DEBT,MARKER_INTEREST,minBetFor,quotaFor,roundTime,upgradeCost,UPGRADES} from './engine'
 import {crashMs,crashMult,drawCrash,resolve} from './payouts'
 import {FLOORS,machinesFor,ruleFor} from './floors'
-import {GAME_KINDS,SIMPLE_KINDS} from '../../../types/net'
+import {GAME_KINDS,SIMPLE_KINDS} from '../types'
 // These tests check the rules, so they use fixed odds and keep passing when odds.ts is rebalanced. odds.test.ts checks the real numbers.
 vi.mock('./odds',async importOriginal=>{
  const real=await importOriginal<typeof import('./odds')>()

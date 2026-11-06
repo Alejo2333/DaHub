@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {isHost,MAX_PLAYERS,selfId,setReady,startGame} from '../multiplayer/party'
+import {isHost,selfId,setReady,startGame} from '../multiplayer/party'
 import type {GameModule} from '../types/game'
 import type {Player} from '../types/net'
 import Avatar from './Avatar'
@@ -7,7 +7,7 @@ import ChatBox from './ChatBox'
 
 export default function Lobby({game,code,players,hostId,onExit}:{game:GameModule;code:string;players:Player[];hostId:string;onExit:()=>void}){
  const [copied,setCopied]=useState(false)
- const me=players.find(p=>p.id===selfId),host=isHost(),allReady=players.every(p=>p.ready)
+ const me=players.find(p=>p.id===selfId),host=isHost(),allReady=players.every(p=>p.ready),missing=game.minPlayers-players.length
  const waitingOn=players.filter(p=>!p.ready).length
  const copy=()=>{void navigator.clipboard.writeText(`${location.origin}/party/${code}`).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500)})}
  return <section className="lobby">
@@ -19,9 +19,9 @@ export default function Lobby({game,code,players,hostId,onExit}:{game:GameModule
   <div className="lobby-body">
    <div className="lobby-main">
    <div className="lobby-players">
-    <h2 className="section-title">Players {players.length}/{MAX_PLAYERS}</h2>
+    <h2 className="section-title">Players {players.length}/{game.maxPlayers}</h2>
     <ul className="slot-grid">
-     {Array.from({length:MAX_PLAYERS},(_,i)=>{
+     {Array.from({length:game.maxPlayers},(_,i)=>{
       const p=players[i]
       return p
        ?<li key={p.id} className={`slot${p.ready?' slot-ready':''}`}>
@@ -31,7 +31,7 @@ export default function Lobby({game,code,players,hostId,onExit}:{game:GameModule
     </ul>
     {!host&&me&&<button onClick={()=>setReady(!me.ready)} className={me.ready?'btn-ghost btn-wide':'btn-primary'}>{me.ready?'Not ready yet':"I'm ready"}</button>}
     {!host&&!me&&<p role="status" className="hint">Joining the party…</p>}
-    {host&&<button onClick={startGame} disabled={!allReady} className="btn-primary">{allReady?'Start game':`Waiting for ${waitingOn} ${waitingOn===1?'player':'players'}`}</button>}
+    {host&&<button onClick={startGame} disabled={!allReady||missing>0} className="btn-primary">{missing>0?`Need ${missing} more ${missing===1?'player':'players'}`:allReady?'Start game':`Waiting for ${waitingOn} ${waitingOn===1?'player':'players'}`}</button>}
    </div>
    <ChatBox variant="lobby"/>
    </div>

@@ -1,4 +1,4 @@
-import type {PrankKind} from '../../../types/net'
+import type {PrankKind} from '../types'
 
 export const LUCK_CHARGES=3,LUCK_WIN=1.25,CLOCK_SECONDS=45,BRIBE_CUT=.1
 /** How long the timed pranks last, in seconds. */

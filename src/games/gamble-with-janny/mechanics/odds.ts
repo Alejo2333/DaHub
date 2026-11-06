@@ -1,4 +1,4 @@
-import type { SimpleKind } from "../../../types/net";
+import type { SimpleKind } from "../types";
 
 /**
  * EVERY GAME'S ODDS AND PAYOUTS LIVE HERE.
@@ -100,7 +100,7 @@ export const HOT_MACHINES_BONUS = 0.04;
 export const HOT_MACHINES_MAX_LEVEL = 2;
 /** A machine that is "running hot" multiplies its wins by this. */
 export const HOT_EVENT_WIN = 1.1;
-/** Fermil's dare: the chance the team wins the flip. */
+/** Janny's dare: the chance the team wins the flip. */
 export const DARE_WIN_CHANCE = 0.48;
 /** Shakedown: the chance a team that refuses to pay gets away with it. */
 export const SHAKEDOWN_ESCAPE_CHANCE = 0.5;
@@ -156,9 +156,9 @@ export const TABLE_GAME_ODDS: Record<SimpleKind, SimpleOdds> = {
   },
   rps: {
     faces: faces(
-      ["✊ Fermil threw rock", 1],
-      ["✋ Fermil threw paper", 1],
-      ["✌️ Fermil threw scissors", 1],
+      ["✊ Janny threw rock", 1],
+      ["✋ Janny threw paper", 1],
+      ["✌️ Janny threw scissors", 1],
     ),
     options: [
       { id: "rock", label: "Rock", pays: [1, 0, 1.8] },
