@@ -2,7 +2,7 @@
 
 **DaHub** is a browser-based multiplayer game hub where players can create rooms, invite friends, and play games together. It features a shared multiplayer lobby, real-time communication, and a modular game architecture designed to make adding new games straightforward.
 
-🌐 **Live Demo:** [https://dahub-azure.vercel.app/](https://dahub-fermil.vercel.app/)
+🌐 **Live Demo:** [https://dahub-fermil.vercel.app/](https://dahub-fermil.vercel.app/)
 
 📦 **Repository:** [https://github.com/Alejo2333/DaHub](https://github.com/Alejo2333/DaHub)
 
