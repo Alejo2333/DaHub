@@ -1,0 +1,18 @@
+.gl-root{background:#2a1147}
+.gl-progress{flex:1 1 14rem;min-width:10rem}
+.gl-track{position:relative;height:.45rem;margin-top:.35rem;border-radius:1rem;background:#ffffff22}
+.gl-fill{position:absolute;inset:0 auto 0 0;border-radius:1rem;background:linear-gradient(90deg,#ff9a5a,#ff4d8d)}
+.gl-dot{position:absolute;top:50%;width:.7rem;height:.7rem;border-radius:50%;transform:translate(-50%,-50%);border:2px solid #0f0716}
+.gl-flow i{display:inline-block;width:.42rem;height:.9rem;margin-right:.14rem;border-radius:.1rem;background:#ffffff22}
+.gl-flow i.on{background:#3de0d0}
+.gl-count{position:absolute;inset:0;z-index:20;display:grid;place-items:center;pointer-events:none;font:800 min(26vw,10rem)/1 var(--display,sans-serif);color:#fff4e6;text-shadow:0 .4rem 2rem #000a}
+.gl-count span{animation:gl-pop .9s ease-out both}
+@keyframes gl-pop{from{transform:scale(1.6);opacity:0}25%{transform:scale(1);opacity:1}to{transform:scale(.92);opacity:.85}}
+.gl-hint{position:absolute;right:.9rem;bottom:.9rem;z-index:10;padding:.3rem .7rem;border-radius:.5rem;background:#0009;color:#fff;font-size:.8rem;pointer-events:none}
+.gl-results{list-style:none;margin:.8rem 0 1rem;padding:0;text-align:left}
+.gl-results li{display:flex;align-items:center;gap:.6rem;padding:.4rem .6rem;border-radius:.5rem}
+.gl-results li:nth-child(odd){background:#ffffff0d}
+.gl-results b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gl-results .gl-place{width:1.5rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.gl-results .gl-time{font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){.gl-count span{animation:none}}
