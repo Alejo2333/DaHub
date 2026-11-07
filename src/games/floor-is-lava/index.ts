@@ -30,6 +30,8 @@ const net: GameNet<FlState, FlAction> = {
       (x.t === "POS" && num(x.x) && num(x.y) && num(x.z) && num(x.ry))),
   createHost(ctx) {
     const st: FlState = { phase: "waiting", round: 0, seed: seedOf(), t: 0, pt: 0, winner: null, order: [], players: {} };
+    // Everyone in the lobby is in the game: no separate PLAY press needed to count as a player.
+    for (const p of ctx.players()) st.players[p.id] = { x: 0, y: START_TOP, z: 0, ry: 0, alive: true, dt: 0, px: 0, pz: 0, pn: 0, pw: 1, by: "", kl: "" };
     let last = Date.now();
     const lastPush: Record<string, number> = {};
     const hits: Record<string, number[]> = {}, lastHit: Record<string, { from: string; at: number }> = {};

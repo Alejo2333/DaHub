@@ -132,6 +132,7 @@ export default function FloorIsLava() {
   const play = () => { setJoined(true); sendAction({ t: 'JOIN' }); mount.current?.querySelector('canvas')?.requestPointerLock?.() }
   void players
 
+  useEffect(() => { if (me && !joined) setJoined(true) }, [me, joined]) // host auto-registers lobby players
   useEffect(() => { if (phase === 'ended') document.exitPointerLock?.() }, [phase])
 
   useEffect(() => {
@@ -461,7 +462,7 @@ export default function FloorIsLava() {
       </div>
     </>}
 
-    {!joined && <div style={overlay}>
+    {!joined && !me && <div style={overlay}>
       <div style={panel}>
         <div style={title}>FLOOR IS LAVA</div>
         <div style={{ fontSize: 16, margin: '10px 0 16px' }}>Climb. Jump. Shove. Last one standing wins!</div>
@@ -480,7 +481,7 @@ export default function FloorIsLava() {
 
     {joined && phase === 'countdown' && state && <div style={overlay}>
       {(() => { const n = Math.max(1, Math.ceil((COUNTDOWN - state.t) / 1000)); return <div key={n} style={{ fontSize: 170, color: n <= 1 ? '#ff6b6b' : '#ffd43b', animation: 'flPop 1s ease-out forwards' }}>{n}</div> })()}
-      <div style={{ fontSize: 24 }}>{me?.alive ? 'Get ready — shove to survive!' : 'Spectating — you join next round'}</div>
+      <div style={{ fontSize: 24 }}>{me?.alive ? 'Get ready — click to lock the mouse, shove to survive!' : 'Spectating — you join next round'}</div>
     </div>}
 
     {joined && phase === 'playing' && !!state && state.t < 1000 && <div style={overlay}><div style={{ fontSize: 120, color: '#8ce99a', animation: 'flGo 1s ease-out forwards' }}>GO!</div></div>}
