@@ -9,6 +9,8 @@ export interface FlPlayer { x: number; y: number; z: number; ry: number; alive: 
 export interface FlState {
   phase: Phase; round: number; seed: number; t: number; pt: number
   winner: string | null; order: string[]; players: Record<string, FlPlayer>
+  /** Host Date.now() when this state was published; clients use it to sync clocks. */
+  hn: number
 }
 export type FlAction = { t: "JOIN" } | { t: "RESTART" } | { t: "PUSH"; to: string } | { t: "POS"; x: number; y: number; z: number; ry: number };
 
@@ -21,18 +23,21 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const net: GameNet<FlState, FlAction> = {
   isState: (x): x is FlState =>
     isRec(x) && ["waiting", "countdown", "playing", "ended"].includes(x.phase as string) &&
-    num(x.round) && num(x.seed) && num(x.t) && num(x.pt) &&
+    num(x.round) && num(x.seed) && num(x.t) && num(x.pt) && num(x.hn) &&
     (x.winner === null || isStr(x.winner)) &&
-    Array.isArray(x.order) && x.order.every(isStr) &&
+    Array.isArray(x.order) && x.order.every((id) => isStr(id)) &&
     isRec(x.players) && Object.values(x.players).every(isPlayer),
   isAction: (x): x is FlAction =>
     isRec(x) && (x.t === "JOIN" || x.t === "RESTART" || (x.t === "PUSH" && isStr(x.to)) ||
       (x.t === "POS" && num(x.x) && num(x.y) && num(x.z) && num(x.ry))),
   createHost(ctx) {
-    const st: FlState = { phase: "waiting", round: 0, seed: seedOf(), t: 0, pt: 0, winner: null, order: [], players: {} };
+    const st: FlState = { phase: "waiting", round: 0, seed: seedOf(), t: 0, pt: 0, winner: null, order: [], players: {}, hn: Date.now() };
     // Everyone in the lobby is in the game: no separate PLAY press needed to count as a player.
     for (const p of ctx.players()) st.players[p.id] = { x: 0, y: START_TOP, z: 0, ry: 0, alive: true, dt: 0, px: 0, pz: 0, pn: 0, pw: 1, by: "", kl: "" };
     let last = Date.now();
+    const step = () => { const n = Date.now(); st.t += n - last; last = n; st.hn = n };
+    let lastPub = 0;
+    const pub = (force = false) => { const n = Date.now(); if (force || n - lastPub >= 45) { lastPub = n; ctx.publish(); } };
     const lastPush: Record<string, number> = {};
     const hits: Record<string, number[]> = {}, lastHit: Record<string, { from: string; at: number }> = {};
     const count = () => Object.keys(st.players).length;
@@ -47,7 +52,7 @@ const net: GameNet<FlState, FlAction> = {
       for (const id of st.order) Object.assign(st.players[id], { alive: true, dt: 0, x: 0, y: START_TOP, z: 0, px: 0, pz: 0, pw: 1, by: "", kl: "" });
     };
     const tick = () => {
-      const now = Date.now(); st.t += now - last; last = now;
+      step();
       if (st.phase === "waiting") { if (count() >= 2) begin(); }
       else if (st.phase === "countdown") { if (st.t >= COUNTDOWN) { st.phase = "playing"; st.t = 0; } }
       else if (st.phase === "playing") {
@@ -61,9 +66,9 @@ const net: GameNet<FlState, FlAction> = {
           st.phase = "ended"; st.pt = st.t; st.t = 0; st.winner = a === 1 ? who : null;
         }
       } else if (st.t >= ENDED) begin();
-      ctx.publish();
+      pub(true);
     };
-    const timer = setInterval(tick, 100);
+    const timer = setInterval(tick, 50);
     return {
       state: () => st,
       onAction(from, a) {
@@ -77,15 +82,16 @@ const net: GameNet<FlState, FlAction> = {
           if (!me || !tg || from === a.to || !me.alive || !tg.alive || st.phase === "countdown") return;
           if (now - (lastPush[from] ?? 0) < 700) return;
           const dx = tg.x - me.x, dz = tg.z - me.z, d = Math.hypot(dx, dz);
-          if (d > 2.8 || Math.abs(tg.y - me.y) > 2.5) return;
+          if (d > 4.2 || Math.abs(tg.y - me.y) > 3.5) return;
           lastPush[from] = now;
           tg.px = d > 0.01 ? dx / d : 1; tg.pz = d > 0.01 ? dz / d : 0; tg.pn++;
           // Knockback stacks: every hit taken within 4s makes the next shove stronger (max x2.2).
           const hs = (hits[a.to] = (hits[a.to] ?? []).filter(t => now - t < 4000)); hs.push(now);
           tg.pw = Math.min(2.2, 1 + 0.3 * (hs.length - 1)); tg.by = from; lastHit[a.to] = { from, at: now };
+          step(); pub(true);
         } else {
           const p = st.players[from];
-          if (p && p.alive) { p.x = clamp(a.x, -400, 400); p.y = clamp(a.y, -50, 400); p.z = clamp(a.z, -400, 400); p.ry = a.ry; }
+          if (p && p.alive) { p.x = clamp(a.x, -400, 400); p.y = clamp(a.y, -50, 400); p.z = clamp(a.z, -400, 400); p.ry = a.ry; step(); pub(); }
         }
       },
       onPlayerLeave(id) { delete st.players[id]; delete lastPush[id]; delete hits[id]; delete lastHit[id]; },

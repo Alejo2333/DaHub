@@ -276,15 +276,20 @@ export default function FloorIsLava() {
       fx.emit(c.grp.position.x, c.grp.position.y + .8, c.grp.position.z, 2, 0xff8a1a, 2, 3, -4, .6)
     }
 
+    let off: number | null = null
     let raf = 0, last = performance.now(), lastSt: FlState | null = null, recv = last, lastRound = -1, lastSend = 0, wasJoined = false
     let camPos = new THREE.Vector3(0, 12, 20), spd = 0
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop)
       const dt = Math.min(.05, (now - last) / 1000); last = now
       const st = useApp.getState().gameState as FlState | null
-      if (st !== lastSt) { lastSt = st; recv = now; if (st && st.seed !== seed) build(st.seed) }
+      if (st !== lastSt) {
+        lastSt = st; recv = now
+        if (st) { const o = st.hn - Date.now(); off = off === null || o < off ? o : off + (o - off) * 0.02 }
+        if (st && st.seed !== seed) build(st.seed)
+      }
       const ph = st?.phase ?? 'waiting', joinedNow = joinedRef.current, mine = st?.players[selfId]
-      const pms = st ? (ph === 'playing' ? st.t + now - recv : ph === 'ended' ? st.pt : 0) : 0
+      const pms = st ? (ph === 'playing' ? st.t + (Date.now() + (off ?? 0) - st.hn) : ph === 'ended' ? st.pt : 0) : 0
       const T = pms / 1000, lv = lavaAt(pms)
       lavaM.position.y = lv; glow.position.y = lv + .06
       tex.offset.x += dt * .004; tex.offset.y += dt * .003; tex2.offset.x -= dt * .005
