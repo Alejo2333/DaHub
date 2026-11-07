@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import game, {
   BOARD_WIDTH,
+  COUNTDOWN_TICKS,
   FINISH_ROW,
   RESPAWN_TICKS,
   ROUND_BREAK_TICKS,
@@ -36,6 +37,13 @@ describe("Crossy Race host rules", () => {
 
   it("creates a safe start row and valid traffic rows", () => {
     const state = host.state() as CrossyState;
+    expect(state.phase).toBe("countdown");
+    expect(state.countdownTicks).toBe(COUNTDOWN_TICKS);
+    expect(state.players.racer).toMatchObject({
+      x: Math.floor(BOARD_WIDTH / 2),
+      y: 0,
+      alive: true,
+    });
     expect(state.rows[0]).toMatchObject({ y: 0, kind: "grass", items: [] });
     expect(state.rows.every((row) =>
       Number.isInteger(row.y) &&
@@ -47,6 +55,7 @@ describe("Crossy Race host rules", () => {
   });
 
   it("accepts movement, wraps horizontally, and prevents moving behind the start", () => {
+    vi.advanceTimersByTime(COUNTDOWN_TICKS * TICK_MS);
     host.onAction("racer", { t: "MOVE", dir: "left" });
     let racer = (host.state() as CrossyState).players.racer!;
     expect(racer.x).toBe(3);
@@ -67,7 +76,18 @@ describe("Crossy Race host rules", () => {
     expect((host.state() as CrossyState).players.racer!.y).toBe(0);
   });
 
+  it("does not allow movement until the countdown has finished", () => {
+    host.onAction("racer", { t: "MOVE", dir: "up" });
+    expect((host.state() as CrossyState).players.racer!.y).toBe(0);
+    expect((host.state() as CrossyState).phase).toBe("countdown");
+
+    vi.advanceTimersByTime(COUNTDOWN_TICKS * TICK_MS);
+    host.onAction("racer", { t: "MOVE", dir: "up" });
+    expect((host.state() as CrossyState).players.racer!.y).toBe(1);
+  });
+
   it("respawns a racer after a collision using a fixed delay", () => {
+    vi.advanceTimersByTime(COUNTDOWN_TICKS * TICK_MS);
     host.onAction("racer", { t: "MOVE", dir: "up" });
     const state = host.state() as CrossyState;
     const racer = state.players.racer!;
@@ -93,9 +113,12 @@ describe("Crossy Race host rules", () => {
     host = makeHost();
     let firstMap = "";
 
+    vi.advanceTimersByTime(COUNTDOWN_TICKS * TICK_MS);
     for (let round = 1; round <= TOTAL_ROUNDS; round++) {
       if (round > 1) {
-        vi.advanceTimersByTime(ROUND_BREAK_TICKS * TICK_MS);
+        vi.advanceTimersByTime(
+          (ROUND_BREAK_TICKS + COUNTDOWN_TICKS) * TICK_MS,
+        );
       }
       const state = host.state() as CrossyState;
       if (!state.players.racer) host.onAction("racer", { t: "MOVE", dir: "up" });

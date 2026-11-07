@@ -359,6 +359,7 @@
   line-height: 1.05;
 }
 .crossy-down-banner,
+.crossy-countdown,
 .crossy-round-banner,
 .crossy-results {
   position: absolute;
@@ -366,6 +367,36 @@
   left: 50%;
   z-index: 3;
   transform: translate(-50%, -50%);
+}
+.crossy-countdown {
+  display: grid;
+  justify-items: center;
+  gap: 0.3rem;
+  color: #fff;
+  text-shadow: 0 3px 14px #18324770;
+  pointer-events: none;
+}
+.crossy-countdown small {
+  font-size: 0.7rem;
+  font-weight: 950;
+  letter-spacing: 0.2em;
+}
+.crossy-countdown b {
+  display: grid;
+  place-items: center;
+  width: 7rem;
+  height: 7rem;
+  border: 0.35rem solid #ffffffd9;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #ffdb61ed, #ff9a42ed);
+  box-shadow:
+    0 12px 40px #17364765,
+    inset 0 2px 6px #fff9;
+  color: #fff;
+  font-size: 4rem;
+  font-weight: 1000;
+  line-height: 1;
+  animation: cr-count-pop 0.24s cubic-bezier(0.2, 0.8, 0.25, 1.2) both;
 }
 .crossy-down-banner {
   display: flex;
@@ -767,6 +798,16 @@
     transform: translate(-50%, -50%) scale(1);
   }
 }
+@keyframes cr-count-pop {
+  from {
+    opacity: 0.5;
+    transform: scale(0.65);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
 @media (max-width: 850px) {
   .crossy-side {
     width: 15.5rem;
@@ -976,6 +1017,11 @@
     max-width: calc(100% - 2rem);
     font-size: 0.62rem;
   }
+  .crossy-countdown b {
+    width: 5.5rem;
+    height: 5.5rem;
+    font-size: 3rem;
+  }
 }
 @media (max-height: 600px) and (min-width: 561px) {
   .crossy-side {
@@ -1004,7 +1050,8 @@
   .crossy-alive i,
   .crossy-leaderboard li,
   .crossy-stats,
-  .crossy-down-banner {
+  .crossy-down-banner,
+  .crossy-countdown b {
     animation: none;
   }
   .crossy-button,

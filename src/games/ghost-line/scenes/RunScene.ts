@@ -2,9 +2,7 @@ import Phaser from 'phaser'
 import type {ChatLine} from '../../../stores/app'
 import {hueOf} from '../../../utils/color'
 import {sfx} from '../../../utils/sound'
-import {Animator,anchorFor} from '../anim/animator'
-import type {V} from '../anim/ik'
-import {BONES,type Joints} from '../anim/skeleton'
+import {SpriteRig,loadSprites,type SheetName} from '../anim/sprites'
 import {platformAt,zonesIn,type Course,type Zone} from '../mechanics/course'
 import {animParam,newRunner,start,step,STEP,TRICK_NAMES,type Runner} from '../mechanics/runner'
 import {GHOST_DELAY,ghostAt,type Sample} from '../net/client'
@@ -33,31 +31,17 @@ const ROOF=0x0e0718,ROOF_FACE=0x170b26,PROP=0x1e1030,STRIPE=0xffc94a,CHECK=0x3de
 const BODY=0x05020a,FAR=0x2c1b42
 const hsl=(h:number)=>Phaser.Display.Color.HSLToColor(h/360,.75,.62).color
 
-/** A soft cloth tail. Each point follows the one before it with a little gravity, so it trails behind every move. */
-class Scarf{
- pts:V[]=[];prev:V[]=[]
- constructor(n=7){for(let i=0;i<n;i++){this.pts.push({x:0,y:0});this.prev.push({x:0,y:0})}}
- update(at:V,dt:number){
-  const L=6
-  if(Math.hypot(this.pts[0]!.x-at.x,this.pts[0]!.y-at.y)>160)for(let i=0;i<this.pts.length;i++){this.pts[i]={x:at.x-i*L,y:at.y};this.prev[i]={x:at.x-i*L,y:at.y}}
-  this.pts[0]={...at}
-  for(let i=1;i<this.pts.length;i++){
-   const p=this.pts[i]!,q=this.prev[i]!,vx=(p.x-q.x)*.93,vy=(p.y-q.y)*.93
-   this.prev[i]={...p};p.x+=vx;p.y+=vy+260*dt*dt+Math.sin(performance.now()/90+i)*.12}
-  for(let k=0;k<2;k++)for(let i=1;i<this.pts.length;i++){
-   const a=this.pts[i-1]!,b=this.pts[i]!,d=Math.hypot(b.x-a.x,b.y-a.y)||1,s=(d-L)/d
-   b.x-=(b.x-a.x)*s;b.y-=(b.y-a.y)*s}}}
-
 interface Puff{x:number;y:number;vx:number;vy:number;life:number;max:number;size:number}
-interface Ghost{an:Animator;g:Phaser.GameObjects.Graphics;label:Phaser.GameObjects.Text;scarf:Scarf;color:number}
+interface Ghost{rig:SpriteRig;label:Phaser.GameObjects.Text;color:number}
+interface Echo{name:SheetName;frame:number;x:number;y:number}
 
 class Run extends Phaser.Scene{
- r:Runner=newRunner();an=new Animator();scarf=new Scarf()
+ r:Runner=newRunner();rig!:SpriteRig;echoes:SpriteRig[]=[]
  prevX=0;prevY=0;acc=0;ms=0;jump=false;slide=false;going=false;sent=false
  lastPose=0;lastHud=0;lastMove:Move='idle';camX=0;camY=0
- world!:Phaser.GameObjects.Graphics;fg!:Phaser.GameObjects.Graphics;me!:Phaser.GameObjects.Graphics;fxG!:Phaser.GameObjects.Graphics;lines!:Phaser.GameObjects.Graphics
+ world!:Phaser.GameObjects.Graphics;fg!:Phaser.GameObjects.Graphics;fxG!:Phaser.GameObjects.Graphics;lines!:Phaser.GameObjects.Graphics
  sky!:Phaser.GameObjects.Image;sun!:Phaser.GameObjects.Image;layers:{s:Phaser.GameObjects.TileSprite;f:number}[]=[]
- zones:Zone[]=[];trickSeen=0;trail:Joints[]=[];trailT=0
+ zones:Zone[]=[];trickSeen=0;trail:Echo[]=[];trailT=0
  puffs:Puff[]=[];ghosts=new Map<string,Ghost>();myColor=0;nameTag!:Phaser.GameObjects.Text
  bubbles=new Map<string,{t:Phaser.GameObjects.Text;until:number}>();chatSeen=0
  constructor(private h:Hooks){super('run')}
@@ -74,6 +58,7 @@ class Run extends Phaser.Scene{
    if(lit){x.fillStyle=lit;for(let wy=H-bh+10;wy<H;wy+=16)for(let wx=px+6;wx<Math.min(px+bw,1024)-6;wx+=12)if(rnd()<.14)x.fillRect(wx,wy,5,8);x.fillStyle=color}
    px+=bw+rnd()*8}
   c.refresh()}
+ preload(){loadSprites(this)}
  create(){
   const sk=this.textures.createCanvas('gl-sky',4,512)!,sx=sk.getContext(),grad=sx.createLinearGradient(0,0,0,512)
   const t=this.theme,at=this.h.course.scenery
@@ -87,7 +72,7 @@ class Run extends Phaser.Scene{
   this.sun=this.add.image(0,0,'gl-sun').setScrollFactor(0).setDepth(1)
   this.layers=([['gl-far',.08,1],['gl-mid',.18,1.5],['gl-near',.32,2]] as const).map(([k,f,d])=>({s:this.add.tileSprite(0,0,10,420,k).setOrigin(0,1).setScrollFactor(0).setDepth(d),f}))
   this.lines=this.add.graphics().setScrollFactor(0).setDepth(3)
-  this.world=this.add.graphics().setDepth(5);this.me=this.add.graphics().setDepth(8);this.fg=this.add.graphics().setDepth(9);this.fxG=this.add.graphics().setDepth(10)
+  this.world=this.add.graphics().setDepth(5);this.rig=new SpriteRig(this,8);this.echoes=[0,1,2,3,4].map(()=>new SpriteRig(this,7));this.fg=this.add.graphics().setDepth(9);this.fxG=this.add.graphics().setDepth(10)
   this.myColor=hsl(hueOf(this.h.selfId))
   this.nameTag=this.label(this.h.name,'#ffffff').setDepth(12)
   this.chatSeen=this.h.chat().at(-1)?.id??0
@@ -125,15 +110,14 @@ class Run extends Phaser.Scene{
   if(now-this.lastHud>HUD_MS){this.lastHud=now;this.h.onHud(x,this.ms,this.r.flow,this.r.combo,this.r.boost)}
   this.moveCamera(x,y,dt)
   this.drawWorld()
-  const joints=this.an.update({move:this.r.move,p:animParam(this.r),x,y},dt,anchorFor(this.h.course,this.r.move,x))
-  this.scarf.update(joints.neck,dt)
-  this.me.clear()
+  const boosting=this.r.boost>25
+  this.rig.update(this.r.move,animParam(this.r),x,y,dt,boosting)
   // Echoes of the body while a trick burst lasts, so speed reads at a glance.
   this.trailT+=dt
-  if(this.trailT>.045){this.trailT=0;this.trail.push(joints);if(this.trail.length>5)this.trail.shift()}
-  if(this.r.boost>25)this.trail.forEach((j,i)=>this.drawBody(this.me,j,this.myColor,this.myColor,.05+.035*i))
-  this.drawScarf(this.me,this.scarf,this.myColor,1);this.drawBody(this.me,joints,BODY,FAR,1)
-  this.nameTag.setPosition(joints.head.x,joints.head.y-20)
+  if(this.trailT>.045){this.trailT=0;this.trail.push({name:this.rig.name,frame:this.rig.frame,x,y});if(this.trail.length>5)this.trail.shift()}
+  this.echoes.forEach((e,i)=>{const t=this.trail[i];e.img.setVisible(boosting&&!!t)
+   if(boosting&&t){e.show(t.name,t.frame,t.x,t.y);e.img.setTint(this.myColor).setAlpha(.1+.07*i)}})
+  this.nameTag.setPosition(x,this.rig.img.getTopCenter().y-14)
   this.updateGhosts(now,dt)
   this.updateBubbles(now)
   this.drawFx(dt)
@@ -226,21 +210,6 @@ class Run extends Phaser.Scene{
    g.fillStyle(0xffffff);g.fillRect(c.finishX-2,top-130,4,130)
    for(let i=0;i<5;i++)for(let j=0;j<3;j++){g.fillStyle((i+j)%2?0xffffff:BODY);g.fillRect(c.finishX+2+i*9,top-130+j*9,9,9)}}}
 
- limb(g:Phaser.GameObjects.Graphics,a:V,b:V,w1:number,w2:number,color:number,alpha:number){
-  const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,nx=-dy/d,ny=dx/d
-  g.fillStyle(color,alpha)
-  g.fillPoints([{x:a.x+nx*w1,y:a.y+ny*w1},{x:b.x+nx*w2,y:b.y+ny*w2},{x:b.x-nx*w2,y:b.y-ny*w2},{x:a.x-nx*w1,y:a.y-ny*w1}],true)
-  g.fillCircle(a.x,a.y,w1);g.fillCircle(b.x,b.y,w2)}
- drawBody(g:Phaser.GameObjects.Graphics,j:Joints,near:number,far:number,alpha:number){
-  // Far limbs first, in a lighter shade, so the body keeps its depth as a silhouette.
-  this.limb(g,j.shoulder,j.elbowB,2.6,2,far,alpha);this.limb(g,j.elbowB,j.handB,2,1.5,far,alpha)
-  this.limb(g,j.pelvis,j.kneeB,4.2,2.8,far,alpha);this.limb(g,j.kneeB,j.ankleB,2.8,1.7,far,alpha);this.limb(g,j.ankleB,j.toeB,1.8,1.2,far,alpha)
-  this.limb(g,j.pelvis,j.chest,5,6.5,near,alpha);this.limb(g,j.chest,j.neck,2.6,2.2,near,alpha)
-  g.fillStyle(near,alpha);g.fillCircle(j.head.x,j.head.y,BONES.head)
-  this.limb(g,j.pelvis,j.kneeF,4.6,3,near,alpha);this.limb(g,j.kneeF,j.ankleF,3,1.8,near,alpha);this.limb(g,j.ankleF,j.toeF,1.9,1.2,near,alpha)
-  this.limb(g,j.shoulder,j.elbowF,2.8,2.1,near,alpha);this.limb(g,j.elbowF,j.handF,2.1,1.6,near,alpha)}
- drawScarf(g:Phaser.GameObjects.Graphics,s:Scarf,color:number,alpha:number){
-  for(let i=1;i<s.pts.length;i++)this.limb(g,s.pts[i-1]!,s.pts[i]!,2.4-i*.22,2.4-(i+1)*.22,color,alpha)}
 
  updateGhosts(now:number,dt:number){
   const seen=new Set<string>()
@@ -249,12 +218,10 @@ class Run extends Phaser.Scene{
    if(!s)continue
    seen.add(id)
    let o=this.ghosts.get(id)
-   if(!o){const color=hsl(hueOf(id));o={an:new Animator(),g:this.add.graphics().setDepth(7),label:this.label(name,'#'+color.toString(16).padStart(6,'0')).setDepth(11),scarf:new Scarf(),color};this.ghosts.set(id,o)}
-   const j=o.an.update({move:s.move,p:s.p,x:s.x,y:s.y},dt,anchorFor(this.h.course,s.move,s.x))
-   o.scarf.update(j.neck,dt)
-   o.g.clear();this.drawScarf(o.g,o.scarf,o.color,.6);this.drawBody(o.g,j,o.color,o.color,.42)
-   o.label.setPosition(j.head.x,j.head.y-20)}
-  for(const[id,o]of this.ghosts)if(!seen.has(id)){o.g.destroy();o.label.destroy();this.ghosts.delete(id)}}
+   if(!o){const color=hsl(hueOf(id));const rig=new SpriteRig(this,7);rig.img.setTint(color).setAlpha(.5);o={rig,label:this.label(name,'#'+color.toString(16).padStart(6,'0')).setDepth(11),color};this.ghosts.set(id,o)}
+   o.rig.update(s.move,s.p,s.x,s.y,dt,false)
+   o.label.setPosition(s.x,o.rig.img.getTopCenter().y-14)}
+  for(const[id,o]of this.ghosts)if(!seen.has(id)){o.rig.destroy();o.label.destroy();this.ghosts.delete(id)}}
  updateBubbles(now:number){
   for(const c of this.h.chat())if(c.id>this.chatSeen){
    this.chatSeen=c.id

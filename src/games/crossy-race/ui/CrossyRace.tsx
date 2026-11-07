@@ -49,7 +49,7 @@ const ANIMALS = [
   { id: "cat", emoji: "🐱" },
   { id: "bear", emoji: "🐻" },
 ] as const;
-type AnimalId = typeof ANIMALS[number]["id"];
+type AnimalId = (typeof ANIMALS)[number]["id"];
 
 function animalForPlayer(id: string) {
   let hash = 2166136261;
@@ -85,6 +85,8 @@ type PlayerVisual = {
   motion: Motion;
   alive: boolean;
   color: THREE.Color;
+  lift: number;
+  liftTarget: number;
 };
 
 type RowVisual = {
@@ -94,10 +96,18 @@ type RowVisual = {
   waves: THREE.Mesh[];
 };
 
+type Particle = {
+  mesh: THREE.Mesh;
+  vel: THREE.Vector3;
+  life: number;
+  max: number;
+};
+
 type Runtime = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.OrthographicCamera;
+  sun: THREE.DirectionalLight;
   world: THREE.Group;
   rows: Map<number, RowVisual>;
   players: Map<string, PlayerVisual>;
@@ -105,7 +115,10 @@ type Runtime = {
   geometries: Record<string, THREE.BufferGeometry>;
   state: CrossyState | null;
   receivedAt: number;
-  cameraFocusRow: number;
+  focus: THREE.Vector3;
+  focusReady: boolean;
+  shake: number;
+  particles: Particle[];
   lastFrameAt: number;
   resize: () => void;
 };
@@ -128,13 +141,18 @@ function makeAnimal(animal: AnimalId, color: THREE.Color, runtime: Runtime) {
   const ears: THREE.Mesh[] = [];
   for (const side of [-1, 1]) {
     const eye = new THREE.Mesh(g.eye, m.eye);
-    const eyePosition = animal === "frog"
-      ? [side * 0.18, 1.18, -0.29]
-      : [side * 0.105, 1.04, -0.34];
+    const eyePosition =
+      animal === "frog"
+        ? [side * 0.18, 1.18, -0.29]
+        : [side * 0.105, 1.04, -0.34];
     eye.position.set(eyePosition[0]!, eyePosition[1]!, eyePosition[2]!);
     group.add(eye);
     const pupil = new THREE.Mesh(g.pupil, m.pupil);
-    pupil.position.set(eyePosition[0]!, eyePosition[1]!, eyePosition[2]! - 0.055);
+    pupil.position.set(
+      eyePosition[0]!,
+      eyePosition[1]!,
+      eyePosition[2]! - 0.055,
+    );
     group.add(pupil);
 
     const arm = new THREE.Group();
@@ -147,7 +165,10 @@ function makeAnimal(animal: AnimalId, color: THREE.Color, runtime: Runtime) {
 
     const leg = new THREE.Group();
     leg.position.set(side * 0.13, 0.2, 0.02);
-    const foot = new THREE.Mesh(g.foot, m[animal === "chicken" ? "beak" : `${animal}Fur`]!);
+    const foot = new THREE.Mesh(
+      g.foot,
+      m[animal === "chicken" ? "beak" : `${animal}Fur`]!,
+    );
     foot.position.set(0, -0.07, -0.04);
     leg.add(foot);
     group.add(leg);
@@ -172,10 +193,7 @@ function makeAnimal(animal: AnimalId, color: THREE.Color, runtime: Runtime) {
   if (animal === "bunny" || animal === "cat" || animal === "fox") {
     for (const side of [-1, 1]) {
       const pointed = animal !== "bunny";
-      const ear = new THREE.Mesh(
-        pointed ? g.animalEar : g.chickenHead,
-        fur,
-      );
+      const ear = new THREE.Mesh(pointed ? g.animalEar : g.chickenHead, fur);
       ear.position.set(side * (animal === "bunny" ? 0.14 : 0.18), 1.28, -0.04);
       ear.scale.set(
         animal === "bunny" ? 0.38 : 0.82,
@@ -214,7 +232,11 @@ function makeAnimal(animal: AnimalId, color: THREE.Color, runtime: Runtime) {
     tail = new THREE.Group();
     tail.position.set(0, 0.55, 0.34);
     const tailMesh = new THREE.Mesh(g.chickenBody, fur);
-    tailMesh.scale.set(animal === "fox" ? 0.33 : 0.2, 0.22, animal === "fox" ? 0.58 : 0.42);
+    tailMesh.scale.set(
+      animal === "fox" ? 0.33 : 0.2,
+      0.22,
+      animal === "fox" ? 0.58 : 0.42,
+    );
     tailMesh.rotation.x = -0.4;
     tail.add(tailMesh);
     if (animal === "fox") {
@@ -275,7 +297,11 @@ function makeNameplate(name: string, color: THREE.Color) {
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(Math.min(2.8, Math.max(1.2, name.length * 0.085 + 0.6)), 0.34, 1);
+  sprite.scale.set(
+    Math.min(2.8, Math.max(1.2, name.length * 0.085 + 0.6)),
+    0.34,
+    1,
+  );
   sprite.position.set(0, 1.25, 0);
   return sprite;
 }
@@ -355,19 +381,27 @@ function makeLog(runtime: Runtime, variation: number) {
 
 function disposeDynamicObject(root: THREE.Object3D, runtime: Runtime) {
   const sharedGeometries = new Set(Object.values(runtime.geometries));
-  const sharedMaterials = new Set<THREE.Material>(Object.values(runtime.materials));
+  const sharedMaterials = new Set<THREE.Material>(
+    Object.values(runtime.materials),
+  );
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   const textures = new Set<THREE.Texture>();
   root.traverse((object) => {
-    if (object instanceof THREE.Mesh && !sharedGeometries.has(object.geometry)) {
+    if (
+      object instanceof THREE.Mesh &&
+      !sharedGeometries.has(object.geometry)
+    ) {
       geometries.add(object.geometry);
     }
-    const objectMaterials = object instanceof THREE.Mesh || object instanceof THREE.Sprite
-      ? object.material
-      : null;
+    const objectMaterials =
+      object instanceof THREE.Mesh || object instanceof THREE.Sprite
+        ? object.material
+        : null;
     if (!objectMaterials) return;
-    const list = Array.isArray(objectMaterials) ? objectMaterials : [objectMaterials];
+    const list = Array.isArray(objectMaterials)
+      ? objectMaterials
+      : [objectMaterials];
     for (const material of list) {
       if (sharedMaterials.has(material)) continue;
       materials.add(material);
@@ -384,34 +418,109 @@ function disposeDynamicObject(root: THREE.Object3D, runtime: Runtime) {
 function disposeScene(runtime: Runtime) {
   runtime.renderer.setAnimationLoop(null);
   disposeDynamicObject(runtime.world, runtime);
+  (runtime.scene.background as THREE.Texture | null)?.dispose?.();
   runtime.renderer.dispose();
   runtime.renderer.domElement.remove();
   Object.values(runtime.geometries).forEach((geometry) => geometry.dispose());
   Object.values(runtime.materials).forEach((material) => material.dispose());
 }
 
-function updateMotion(player: PlayerVisual, position: PlayerState, now: number) {
-  const elapsed = Math.min(1, (now - player.motion.started) / player.motion.duration);
-  const t = 1 - Math.pow(1 - elapsed, 3);
-  const hop = player.motion.hop ? Math.sin(Math.PI * elapsed) : 0;
-  const idle = player.alive && !player.motion.onLog
-    ? Math.sin(now / 230 + player.color.r * 8) * 0.018
-    : 0;
+/* ---------- particles (dust on hop, splash / poof on death) ---------- */
+
+function burst(
+  runtime: Runtime,
+  x: number,
+  y: number,
+  color: number,
+  count: number,
+  power: number,
+  up: number,
+) {
+  for (let i = 0; i < count; i++) {
+    const material = new THREE.MeshStandardMaterial({
+      color,
+      transparent: true,
+      roughness: 0.8,
+      flatShading: true,
+    });
+    const mesh = new THREE.Mesh(runtime.geometries.puff, material);
+    mesh.position.set(x, 0.25, -y);
+    runtime.world.add(mesh);
+    const angle = Math.random() * Math.PI * 2;
+    const speed = power * (0.5 + Math.random() * 0.5);
+    runtime.particles.push({
+      mesh,
+      vel: new THREE.Vector3(
+        Math.cos(angle) * speed,
+        up * (0.7 + Math.random() * 0.6),
+        Math.sin(angle) * speed,
+      ),
+      life: 0.6,
+      max: 0.6,
+    });
+  }
+}
+
+function updateParticles(runtime: Runtime, dt: number) {
+  runtime.particles = runtime.particles.filter((p) => {
+    p.life -= dt;
+    const material = p.mesh.material as THREE.MeshStandardMaterial;
+    if (p.life <= 0) {
+      runtime.world.remove(p.mesh);
+      material.dispose();
+      return false;
+    }
+    p.vel.y -= 9 * dt;
+    p.mesh.position.addScaledVector(p.vel, dt);
+    p.mesh.rotation.x += dt * 8;
+    p.mesh.rotation.y += dt * 6;
+    const k = p.life / p.max;
+    p.mesh.scale.setScalar(0.4 + k * 0.8);
+    material.opacity = k;
+    return true;
+  });
+}
+
+function updateMotion(
+  player: PlayerVisual,
+  position: PlayerState,
+  now: number,
+  dt: number,
+) {
+  const raw = Math.min(
+    1,
+    (now - player.motion.started) / player.motion.duration,
+  );
+  // log riders glide linearly so they match the log's constant speed
+  const t = player.motion.onLog ? raw : 1 - Math.pow(1 - raw, 3);
+  const hop = player.motion.hop ? Math.sin(Math.PI * raw) : 0;
+  const k = 1 - Math.exp(-dt * 10);
+
+  player.lift += (player.liftTarget - player.lift) * k;
+  const bob =
+    player.liftTarget > 0 ? Math.sin(now / 520 + position.y) * 0.035 : 0;
+  const idle =
+    player.alive && player.liftTarget === 0
+      ? Math.sin(now / 230 + player.color.r * 8) * 0.018
+      : 0;
+
   const x = THREE.MathUtils.lerp(player.motion.fromX, player.motion.toX, t);
   const y = THREE.MathUtils.lerp(player.motion.fromY, player.motion.toY, t);
   player.group.position.set(x, 0, -y);
-  player.model.position.y = idle + hop * 0.38;
-  player.model.rotation.x = (player.motion.toY > player.motion.fromY ? -1 : 0.7) * hop * 0.18;
-  const movementTilt = Math.sign(player.motion.toX - player.motion.fromX) * hop * -0.12;
+  player.model.position.y = idle + bob + player.lift + hop * 0.38;
+  player.model.rotation.x =
+    (player.motion.toY > player.motion.fromY ? -1 : 0.7) * hop * 0.18;
+  const movementTilt =
+    Math.sign(player.motion.toX - player.motion.fromX) * hop * -0.12;
   player.model.rotation.z = THREE.MathUtils.lerp(
     player.model.rotation.z,
     player.alive ? movementTilt : -Math.PI / 2,
-    0.15,
+    k,
   );
   player.body.scale.y = 0.94 * (1 + hop * 0.12);
   player.head.rotation.z = Math.sin(now / 370 + player.color.r * 5) * 0.035;
   player.legs.forEach((leg, index) => {
-    leg.rotation.x = Math.sin(elapsed * Math.PI * 2 + index * Math.PI) * hop * 0.58;
+    leg.rotation.x = Math.sin(raw * Math.PI * 2 + index * Math.PI) * hop * 0.58;
   });
   player.arms.forEach((arm, index) => {
     arm.rotation.z = (index === 0 ? -1 : 1) * (0.12 + hop * 0.5);
@@ -419,11 +528,17 @@ function updateMotion(player: PlayerVisual, position: PlayerState, now: number) 
   player.ears.forEach((ear, index) => {
     ear.rotation.z = (index === 0 ? 1 : -1) * hop * 0.12;
   });
-  if (player.tail) player.tail.rotation.x = Math.sin(now / 190) * 0.14 - hop * 0.22;
-  player.nameplate.position.y = 1.25 + hop * 0.26;
+  if (player.tail)
+    player.tail.rotation.x = Math.sin(now / 190) * 0.14 - hop * 0.22;
+  player.nameplate.position.y = 1.25 + player.lift + hop * 0.26;
   const targetScale = player.alive ? 0.68 : 0.6;
-  player.model.scale.setScalar(THREE.MathUtils.lerp(player.model.scale.x, targetScale, 0.15));
-  if (elapsed >= 1 && (player.motion.toX !== position.x || player.motion.toY !== position.y)) {
+  player.model.scale.setScalar(
+    THREE.MathUtils.lerp(player.model.scale.x, targetScale, k),
+  );
+  if (
+    raw >= 1 &&
+    (player.motion.toX !== position.x || player.motion.toY !== position.y)
+  ) {
     player.motion.toX = position.x;
     player.motion.toY = position.y;
   }
@@ -432,8 +547,12 @@ function updateMotion(player: PlayerVisual, position: PlayerState, now: number) 
 function updateRuntime(runtime: Runtime, now: number) {
   const state = runtime.state;
   if (!state) return;
-  const elapsed = Math.min(1, (now - runtime.receivedAt) / TICK_MS);
-  const frameSeconds = Math.min(0.05, Math.max(0, (now - runtime.lastFrameAt) / 1000));
+  // allow extrapolation past one tick so a late tick doesn't freeze traffic
+  const elapsed = Math.min(1.5, (now - runtime.receivedAt) / TICK_MS);
+  const frameSeconds = Math.min(
+    0.05,
+    Math.max(0, (now - runtime.lastFrameAt) / 1000),
+  );
   const follow = 1 - Math.exp(-frameSeconds * 22);
   runtime.lastFrameAt = now;
 
@@ -443,10 +562,15 @@ function updateRuntime(runtime: Runtime, now: number) {
     row.items.forEach((item, index) => {
       const obstacle = view.obstacles[index];
       if (!obstacle) return;
-      const targetX = wrap(item + row.direction * row.speed * elapsed * TICK_MS / 1000);
-      const deltaX = wrap(targetX - obstacle.position.x + BOARD_WIDTH / 2) - BOARD_WIDTH / 2;
+      const targetX = wrap(
+        item + (row.direction * row.speed * elapsed * TICK_MS) / 1000,
+      );
+      const deltaX =
+        wrap(targetX - obstacle.position.x + BOARD_WIDTH / 2) - BOARD_WIDTH / 2;
       obstacle.position.x = wrap(obstacle.position.x + deltaX * follow);
       obstacle.position.z = 0;
+      obstacle.position.y =
+        row.kind === "water" ? Math.sin(now / 520 + row.y) * 0.035 : 0;
       obstacle.rotation.y = row.direction > 0 ? Math.PI : 0;
     });
     view.waves.forEach((wave, index) => {
@@ -457,31 +581,46 @@ function updateRuntime(runtime: Runtime, now: number) {
 
   for (const [id, player] of runtime.players) {
     const position = state.players[id];
-    if (position) updateMotion(player, position, now);
+    if (position) updateMotion(player, position, now, frameSeconds);
   }
 
-  const me = selfId ? state.players[selfId] : undefined;
+  // camera: fixed angle, smoothly following a focus point that tracks my chicken
+  const mine = selfId ? runtime.players.get(selfId) : undefined;
   const boardCenterX = ((BOARD_WIDTH - 1) / 2) * WORLD_SCALE;
   const halfWidth = (runtime.camera.right - runtime.camera.left) / 2;
-  const horizontalMargin = Math.min(1.35, halfWidth * 0.4);
-  const playerX = (me?.x ?? (BOARD_WIDTH - 1) / 2) * WORLD_SCALE;
-  const targetX = THREE.MathUtils.clamp(
+  const margin = Math.min(1.35, halfWidth * 0.4);
+  const px = (mine?.group.position.x ?? (BOARD_WIDTH - 1) / 2) * WORLD_SCALE;
+  const pz = (mine?.group.position.z ?? 0) * WORLD_SCALE;
+  const goalX = THREE.MathUtils.clamp(
     boardCenterX,
-    playerX - halfWidth + horizontalMargin,
-    playerX + halfWidth - horizontalMargin,
+    px - halfWidth + margin,
+    px + halfWidth - margin,
   );
-  const playerRow = me?.y ?? 0;
-  const cameraFocusRow = Math.floor(playerRow / 3) * 3;
-  if (cameraFocusRow < runtime.cameraFocusRow - 2) {
-    runtime.cameraFocusRow = cameraFocusRow;
-  } else {
-    runtime.cameraFocusRow = Math.max(runtime.cameraFocusRow, cameraFocusRow);
+  const goalZ = pz - 4.6;
+  const { focus } = runtime;
+  if (!runtime.focusReady && mine) {
+    focus.set(goalX, 0, goalZ);
+    runtime.focusReady = true;
   }
-  const targetZ = -runtime.cameraFocusRow * WORLD_SCALE - 5.2;
-  const look = new THREE.Vector3(targetX, 0, targetZ);
-  const desired = look.clone().add(new THREE.Vector3(9.2, 10.8, 10.8));
-  runtime.camera.position.lerp(desired, 0.035);
-  runtime.camera.lookAt(look);
+  const camK = 1 - Math.exp(-frameSeconds * 5);
+  focus.x += (goalX - focus.x) * camK;
+  focus.z += (goalZ - focus.z) * camK;
+
+  runtime.shake = Math.max(0, runtime.shake - frameSeconds * 1.6);
+  const s = runtime.shake * runtime.shake * 0.5;
+  runtime.camera.position.set(
+    focus.x + 9.2 + (Math.random() - 0.5) * s,
+    10.8 + (Math.random() - 0.5) * s,
+    focus.z + 10.8,
+  );
+  runtime.camera.lookAt(focus);
+
+  // keep the shadow frustum following the action
+  runtime.sun.position.set(focus.x - 7, 15, focus.z + 8);
+  runtime.sun.target.position.copy(focus);
+  runtime.sun.target.updateMatrixWorld();
+
+  updateParticles(runtime, frameSeconds);
 }
 
 function initRuntime(mount: HTMLDivElement): Runtime {
@@ -491,12 +630,23 @@ function initRuntime(mount: HTMLDivElement): Runtime {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   mount.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x9bd9e9);
-  scene.fog = new THREE.Fog(0x9bd9e9, 18, 38);
+  const skyCanvas = document.createElement("canvas");
+  skyCanvas.width = 2;
+  skyCanvas.height = 256;
+  const skyCtx = skyCanvas.getContext("2d")!;
+  const sky = skyCtx.createLinearGradient(0, 0, 0, 256);
+  sky.addColorStop(0, "#9bd9e9");
+  sky.addColorStop(1, "#e6f7ee");
+  skyCtx.fillStyle = sky;
+  skyCtx.fillRect(0, 0, 2, 256);
+  const skyTexture = new THREE.CanvasTexture(skyCanvas);
+  skyTexture.colorSpace = THREE.SRGBColorSpace;
+  scene.background = skyTexture;
+  scene.fog = new THREE.Fog(0xb9e4ea, 18, 38);
   const camera = new THREE.OrthographicCamera(-9, 9, 9, -9, 0.1, 100);
   camera.position.set(8.5, 10, 10);
   camera.lookAt((BOARD_WIDTH - 1) / 2, 0, -4.5);
@@ -505,21 +655,40 @@ function initRuntime(mount: HTMLDivElement): Runtime {
   const sun = new THREE.DirectionalLight(0xfff3d7, 3);
   sun.position.set(-7, 15, 8);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -14;
   sun.shadow.camera.right = 14;
   sun.shadow.camera.top = 16;
   sun.shadow.camera.bottom = -16;
   sun.shadow.bias = -0.001;
-  scene.add(sun);
+  sun.shadow.normalBias = 0.02;
+  scene.add(sun, sun.target);
 
   const materials = {
-    grass: new THREE.MeshStandardMaterial({ color: COLORS.grass, roughness: 0.9 }),
-    grassAlt: new THREE.MeshStandardMaterial({ color: COLORS.grassAlt, roughness: 0.9 }),
-    grassDark: new THREE.MeshStandardMaterial({ color: COLORS.grassDark, roughness: 1 }),
-    finishLight: new THREE.MeshStandardMaterial({ color: COLORS.finishLight, roughness: 0.75 }),
-    finishDark: new THREE.MeshStandardMaterial({ color: COLORS.finishDark, roughness: 0.75 }),
-    road: new THREE.MeshStandardMaterial({ color: COLORS.road, roughness: 0.85 }),
+    grass: new THREE.MeshStandardMaterial({
+      color: COLORS.grass,
+      roughness: 0.9,
+    }),
+    grassAlt: new THREE.MeshStandardMaterial({
+      color: COLORS.grassAlt,
+      roughness: 0.9,
+    }),
+    grassDark: new THREE.MeshStandardMaterial({
+      color: COLORS.grassDark,
+      roughness: 1,
+    }),
+    finishLight: new THREE.MeshStandardMaterial({
+      color: COLORS.finishLight,
+      roughness: 0.75,
+    }),
+    finishDark: new THREE.MeshStandardMaterial({
+      color: COLORS.finishDark,
+      roughness: 0.75,
+    }),
+    road: new THREE.MeshStandardMaterial({
+      color: COLORS.road,
+      roughness: 0.85,
+    }),
     roadLine: new THREE.MeshStandardMaterial({
       color: COLORS.roadLine,
       roughness: 0.7,
@@ -533,12 +702,25 @@ function initRuntime(mount: HTMLDivElement): Runtime {
       transparent: true,
       opacity: 0.94,
     }),
-    waterDeep: new THREE.MeshStandardMaterial({ color: COLORS.waterDeep, roughness: 0.3 }),
+    waterDeep: new THREE.MeshStandardMaterial({
+      color: COLORS.waterDeep,
+      roughness: 0.3,
+    }),
     log: new THREE.MeshStandardMaterial({ color: COLORS.log, roughness: 0.85 }),
-    logLight: new THREE.MeshStandardMaterial({ color: COLORS.logLight, roughness: 0.8 }),
-    logRing: new THREE.MeshStandardMaterial({ color: 0xe0b278, roughness: 0.9 }),
+    logLight: new THREE.MeshStandardMaterial({
+      color: COLORS.logLight,
+      roughness: 0.8,
+    }),
+    logRing: new THREE.MeshStandardMaterial({
+      color: 0xe0b278,
+      roughness: 0.9,
+    }),
     tire: new THREE.MeshStandardMaterial({ color: 0x202932, roughness: 0.9 }),
-    hub: new THREE.MeshStandardMaterial({ color: 0xb9c9cd, metalness: 0.6, roughness: 0.3 }),
+    hub: new THREE.MeshStandardMaterial({
+      color: 0xb9c9cd,
+      metalness: 0.6,
+      roughness: 0.3,
+    }),
     glass: new THREE.MeshStandardMaterial({
       color: 0xa6e5f7,
       roughness: 0.18,
@@ -558,21 +740,74 @@ function initRuntime(mount: HTMLDivElement): Runtime {
     }),
     eye: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }),
     pupil: new THREE.MeshStandardMaterial({ color: 0x202a32, roughness: 0.3 }),
-    beak: new THREE.MeshStandardMaterial({ color: COLORS.beak, roughness: 0.55, flatShading: true }),
-    comb: new THREE.MeshStandardMaterial({ color: COLORS.comb, roughness: 0.55, flatShading: true }),
-    chickenFur: new THREE.MeshStandardMaterial({ color: COLORS.chicken, roughness: 0.62, flatShading: true }),
-    bunnyFur: new THREE.MeshStandardMaterial({ color: 0xf0e3d2, roughness: 0.75, flatShading: true }),
-    foxFur: new THREE.MeshStandardMaterial({ color: 0xe77a36, roughness: 0.7, flatShading: true }),
-    frogFur: new THREE.MeshStandardMaterial({ color: 0x68ba60, roughness: 0.72, flatShading: true }),
-    catFur: new THREE.MeshStandardMaterial({ color: 0x8393a0, roughness: 0.7, flatShading: true }),
-    bearFur: new THREE.MeshStandardMaterial({ color: 0x98633f, roughness: 0.8, flatShading: true }),
-    chickenMuzzle: new THREE.MeshStandardMaterial({ color: 0xffc15a, roughness: 0.6 }),
-    bunnyMuzzle: new THREE.MeshStandardMaterial({ color: 0xe9a4ac, roughness: 0.7 }),
-    foxMuzzle: new THREE.MeshStandardMaterial({ color: 0xffeee0, roughness: 0.8 }),
-    frogMuzzle: new THREE.MeshStandardMaterial({ color: 0x88d279, roughness: 0.7 }),
-    catMuzzle: new THREE.MeshStandardMaterial({ color: 0xe1e7e8, roughness: 0.8 }),
-    bearMuzzle: new THREE.MeshStandardMaterial({ color: 0xd2ac83, roughness: 0.8 }),
-    earInner: new THREE.MeshStandardMaterial({ color: 0xe99ba5, roughness: 0.75 }),
+    beak: new THREE.MeshStandardMaterial({
+      color: COLORS.beak,
+      roughness: 0.55,
+      flatShading: true,
+    }),
+    comb: new THREE.MeshStandardMaterial({
+      color: COLORS.comb,
+      roughness: 0.55,
+      flatShading: true,
+    }),
+    chickenFur: new THREE.MeshStandardMaterial({
+      color: COLORS.chicken,
+      roughness: 0.62,
+      flatShading: true,
+    }),
+    bunnyFur: new THREE.MeshStandardMaterial({
+      color: 0xf0e3d2,
+      roughness: 0.75,
+      flatShading: true,
+    }),
+    foxFur: new THREE.MeshStandardMaterial({
+      color: 0xe77a36,
+      roughness: 0.7,
+      flatShading: true,
+    }),
+    frogFur: new THREE.MeshStandardMaterial({
+      color: 0x68ba60,
+      roughness: 0.72,
+      flatShading: true,
+    }),
+    catFur: new THREE.MeshStandardMaterial({
+      color: 0x8393a0,
+      roughness: 0.7,
+      flatShading: true,
+    }),
+    bearFur: new THREE.MeshStandardMaterial({
+      color: 0x98633f,
+      roughness: 0.8,
+      flatShading: true,
+    }),
+    chickenMuzzle: new THREE.MeshStandardMaterial({
+      color: 0xffc15a,
+      roughness: 0.6,
+    }),
+    bunnyMuzzle: new THREE.MeshStandardMaterial({
+      color: 0xe9a4ac,
+      roughness: 0.7,
+    }),
+    foxMuzzle: new THREE.MeshStandardMaterial({
+      color: 0xffeee0,
+      roughness: 0.8,
+    }),
+    frogMuzzle: new THREE.MeshStandardMaterial({
+      color: 0x88d279,
+      roughness: 0.7,
+    }),
+    catMuzzle: new THREE.MeshStandardMaterial({
+      color: 0xe1e7e8,
+      roughness: 0.8,
+    }),
+    bearMuzzle: new THREE.MeshStandardMaterial({
+      color: 0xd2ac83,
+      roughness: 0.8,
+    }),
+    earInner: new THREE.MeshStandardMaterial({
+      color: 0xe99ba5,
+      roughness: 0.75,
+    }),
     shadow: new THREE.MeshStandardMaterial({
       color: 0x19321f,
       transparent: true,
@@ -607,6 +842,7 @@ function initRuntime(mount: HTMLDivElement): Runtime {
     animalEar: new THREE.ConeGeometry(0.15, 0.35, 4),
     collar: new THREE.TorusGeometry(0.24, 0.065, 6, 16),
     shadow: new THREE.CircleGeometry(0.43, 16),
+    puff: new THREE.BoxGeometry(0.14, 0.14, 0.14),
   };
   const world = new THREE.Group();
   world.scale.setScalar(WORLD_SCALE);
@@ -615,6 +851,7 @@ function initRuntime(mount: HTMLDivElement): Runtime {
     renderer,
     scene,
     camera,
+    sun,
     world,
     rows: new Map(),
     players: new Map(),
@@ -622,7 +859,10 @@ function initRuntime(mount: HTMLDivElement): Runtime {
     geometries,
     state: null,
     receivedAt: performance.now(),
-    cameraFocusRow: 0,
+    focus: new THREE.Vector3(((BOARD_WIDTH - 1) / 2) * WORLD_SCALE, 0, -5.2),
+    focusReady: false,
+    shake: 0,
+    particles: [],
     lastFrameAt: performance.now(),
     resize: () => {},
   };
@@ -632,8 +872,8 @@ function initRuntime(mount: HTMLDivElement): Runtime {
     const height = Math.max(1, mount.clientHeight);
     const aspect = width / height;
     const viewHeight = 10.9;
-    camera.left = -viewHeight * aspect / 2;
-    camera.right = viewHeight * aspect / 2;
+    camera.left = (-viewHeight * aspect) / 2;
+    camera.right = (viewHeight * aspect) / 2;
     camera.top = viewHeight / 2;
     camera.bottom = -viewHeight / 2;
     camera.updateProjectionMatrix();
@@ -664,7 +904,9 @@ function makeRow(runtime: Runtime, row: Row): RowVisual {
       for (let lane = 0; lane < 2; lane++) {
         const square = new THREE.Mesh(
           runtime.geometries.finishSquare,
-          (x + lane) % 2 ? runtime.materials.finishDark : runtime.materials.finishLight,
+          (x + lane) % 2
+            ? runtime.materials.finishDark
+            : runtime.materials.finishLight,
         );
         square.position.set(x, -0.015, lane === 0 ? -0.24 : 0.24);
         group.add(square);
@@ -675,31 +917,46 @@ function makeRow(runtime: Runtime, row: Row): RowVisual {
   const visual: RowVisual = { kind: row.kind, group, obstacles: [], waves: [] };
   if (row.kind === "road") {
     for (let x = -4; x < BOARD_WIDTH + 4; x += 2) {
-      const stripe = new THREE.Mesh(runtime.geometries.stripe, runtime.materials.roadLine);
+      const stripe = new THREE.Mesh(
+        runtime.geometries.stripe,
+        runtime.materials.roadLine,
+      );
       stripe.position.set(x, -0.018, 0.05);
       group.add(stripe);
     }
   } else if (row.kind === "water") {
-    const waterBed = new THREE.Mesh(runtime.geometries.tile, runtime.materials.waterDeep);
+    const waterBed = new THREE.Mesh(
+      runtime.geometries.tile,
+      runtime.materials.waterDeep,
+    );
     waterBed.scale.set(1, 0.2, 1);
     waterBed.position.set((BOARD_WIDTH - 1) / 2, -0.22, 0);
     group.add(waterBed);
     for (let i = 0; i < 5; i++) {
-      const wave = new THREE.Mesh(runtime.geometries.wave, runtime.materials.waterDeep);
+      const wave = new THREE.Mesh(
+        runtime.geometries.wave,
+        runtime.materials.waterDeep,
+      );
       wave.position.set(i * 1.8, 0, 0);
       group.add(wave);
       visual.waves.push(wave);
     }
   } else {
     for (let x = -4; x < BOARD_WIDTH + 4; x += 1) {
-      const tuft = new THREE.Mesh(runtime.geometries.tuft, runtime.materials.grassDark);
+      const tuft = new THREE.Mesh(
+        runtime.geometries.tuft,
+        runtime.materials.grassDark,
+      );
       tuft.position.set(x, -0.005, ((x * 7 + row.y * 3) % 7) * 0.09 - 0.27);
       tuft.rotation.z = ((x * 13 + row.y) % 5) * 0.1;
       group.add(tuft);
     }
     if (row.y % 3 === 1) {
       for (const x of [1, BOARD_WIDTH - 2]) {
-        const trunk = new THREE.Mesh(runtime.geometries.treeTrunk, runtime.materials.log);
+        const trunk = new THREE.Mesh(
+          runtime.geometries.treeTrunk,
+          runtime.materials.log,
+        );
         trunk.position.set(x, 0.32, 0.14);
         group.add(trunk);
         const top = new THREE.Mesh(
@@ -751,7 +1008,10 @@ function syncRuntime(runtime: Runtime, state: CrossyState, now: number) {
       const index = visual.obstacles.length;
       const item =
         row.kind === "road"
-          ? makeCar(runtime, [0xf05e54, 0x43b5d1, 0xf2bd4b, 0x9a71dc][index % 4]!)
+          ? makeCar(
+              runtime,
+              [0xf05e54, 0x43b5d1, 0xf2bd4b, 0x9a71dc][index % 4]!,
+            )
           : makeLog(runtime, index);
       item.position.x = row.items[index]!;
       visual.group.add(item);
@@ -794,6 +1054,8 @@ function syncRuntime(runtime: Runtime, state: CrossyState, now: number) {
         head: character.head,
         color,
         alive: position.alive,
+        lift: 0,
+        liftTarget: 0,
         motion: {
           fromX: position.x,
           toX: position.x,
@@ -814,35 +1076,84 @@ function syncRuntime(runtime: Runtime, state: CrossyState, now: number) {
         player.name = playerName;
       }
       const old = previous?.players[id];
-      const elapsed = Math.min(1, (now - player.motion.started) / player.motion.duration);
+      const elapsed = Math.min(
+        1,
+        (now - player.motion.started) / player.motion.duration,
+      );
       const t = 1 - Math.pow(1 - elapsed, 3);
-      const fromX = THREE.MathUtils.lerp(player.motion.fromX, player.motion.toX, t);
-      const fromY = THREE.MathUtils.lerp(player.motion.fromY, player.motion.toY, t);
+      const fromX = THREE.MathUtils.lerp(
+        player.motion.fromX,
+        player.motion.toX,
+        t,
+      );
+      const fromY = THREE.MathUtils.lerp(
+        player.motion.fromY,
+        player.motion.toY,
+        t,
+      );
       if (old && (old.x !== position.x || old.y !== position.y)) {
         const respawning = isNewRound || (!old.alive && position.alive);
         const row = state.rows.find((candidate) => candidate.y === position.y);
-        const elapsedTicks = Math.max(0, state.tick - (previous?.tick ?? state.tick));
-        const expectedDrift = row?.kind === "water"
-          ? row.direction * row.speed * elapsedTicks * TICK_MS / 1000
-          : 0;
-        const actualXDelta = wrap(position.x - old.x + BOARD_WIDTH / 2) - BOARD_WIDTH / 2;
-        const carriedByLog = !respawning && old.y === position.y &&
-          row?.kind === "water" && Math.abs(actualXDelta - expectedDrift) < 0.12;
+        const elapsedTicks = Math.max(
+          0,
+          state.tick - (previous?.tick ?? state.tick),
+        );
+        const expectedDrift =
+          row?.kind === "water"
+            ? (row.direction * row.speed * elapsedTicks * TICK_MS) / 1000
+            : 0;
+        const actualXDelta =
+          wrap(position.x - old.x + BOARD_WIDTH / 2) - BOARD_WIDTH / 2;
+        const carriedByLog =
+          !respawning &&
+          old.y === position.y &&
+          row?.kind === "water" &&
+          Math.abs(actualXDelta - expectedDrift) < 0.12;
         player.motion = {
           fromX: respawning ? position.x : fromX,
           fromY: respawning ? position.y : fromY,
           toX: position.x,
           toY: position.y,
           started: now,
-          duration: respawning ? 240 : position.y > old.y ? 210 : 160,
+          duration: respawning
+            ? 240
+            : carriedByLog
+              ? TICK_MS
+              : position.y > old.y
+                ? 210
+                : 160,
           hop: !carriedByLog,
           onLog: carriedByLog,
         };
+        if (!respawning && !carriedByLog) {
+          burst(runtime, fromX, fromY, 0xf4f1dc, 3, 0.7, 0.8);
+        }
       }
       if (player.alive !== position.alive) {
+        if (!position.alive) {
+          const onWater =
+            state.rows.find((r) => r.y === position.y)?.kind === "water";
+          burst(
+            runtime,
+            position.x,
+            position.y,
+            onWater ? COLORS.water : player.color.getHex(),
+            14,
+            2.4,
+            3,
+          );
+          if (id === selfId) runtime.shake = 1;
+        }
         player.alive = position.alive;
       }
     }
+
+    // stand on top of logs instead of sinking into them
+    const visual = runtime.players.get(id)!;
+    const standingRow = state.rows.find((r) => r.y === position.y);
+    visual.liftTarget =
+      position.alive && standingRow?.kind === "water" ? 0.5 : 0;
+    if (!player) visual.lift = visual.liftTarget;
   }
 }
 
@@ -937,13 +1248,23 @@ function CrossyRace() {
     <main className="crossy-shell">
       <header className="crossy-topbar">
         <div className="crossy-brand">
-          <span className="crossy-logo" aria-hidden="true">✦</span>
-          <span><b>CROSSY</b><small>RACE CLUB</small></span>
+          <span className="crossy-logo" aria-hidden="true">
+            ✦
+          </span>
+          <span>
+            <b>CROSSY</b>
+            <small>RACE CLUB</small>
+          </span>
         </div>
-        <div className="crossy-live"><i /> ROUND {state.round} / {TOTAL_ROUNDS}</div>
+        <div className="crossy-live">
+          <i /> ROUND {state.round} / {TOTAL_ROUNDS}
+        </div>
         <div className="crossy-top-actions">
           {isHost() && (
-            <button className="crossy-button crossy-button-soft" onClick={returnToLobby}>
+            <button
+              className="crossy-button crossy-button-soft"
+              onClick={returnToLobby}
+            >
               <span aria-hidden="true">↩</span> Lobby
             </button>
           )}
@@ -956,12 +1277,24 @@ function CrossyRace() {
       <section className="crossy-stats" aria-label="Your race">
         <div className="crossy-stat">
           <span className="crossy-stat-icon">🏁</span>
-          <span><small>ROUND WINS</small><b>{state.roundWins[selfId] ?? 0}<em> / {TOTAL_ROUNDS}</em></b></span>
+          <span>
+            <small>ROUND WINS</small>
+            <b>
+              {state.roundWins[selfId] ?? 0}
+              <em> / {TOTAL_ROUNDS}</em>
+            </b>
+          </span>
         </div>
         <div className="crossy-stat-divider" />
         <div className="crossy-stat">
           <span className="crossy-stat-icon crossy-stat-record">✦</span>
-          <span><small>PERSONAL BEST</small><b>{state.scores[selfId] ?? me?.best ?? 0}<em> ROWS</em></b></span>
+          <span>
+            <small>PERSONAL BEST</small>
+            <b>
+              {state.scores[selfId] ?? me?.best ?? 0}
+              <em> ROWS</em>
+            </b>
+          </span>
         </div>
         <div className={`crossy-alive ${me && !me.alive ? "is-down" : ""}`}>
           <i /> {!me ? "READY" : me.alive ? "IN THE GAME" : "WIPED OUT"}
@@ -971,18 +1304,41 @@ function CrossyRace() {
       <div className="crossy-layout">
         <section className="crossy-board-card">
           <div className="crossy-board-heading">
-            <div><small>ROUND {state.round} OF {TOTAL_ROUNDS}</small><h1>Finish first!</h1></div>
-            <div className="crossy-board-legend"><i /> SAFE <span /> TRAFFIC</div>
+            <div>
+              <small>
+                ROUND {state.round} OF {TOTAL_ROUNDS}
+              </small>
+              <h1>Finish first!</h1>
+            </div>
+            <div className="crossy-board-legend">
+              <i /> SAFE <span /> TRAFFIC
+            </div>
           </div>
           <div className="crossy-viewport">
             <div className="crossy-sun-glow" />
-            <div ref={mountRef} className="crossy-canvas" aria-label="3D Crossy Race board" />
+            <div
+              ref={mountRef}
+              className="crossy-canvas"
+              aria-label="3D Crossy Race board"
+            />
             <div className="crossy-distance" aria-live="polite">
-              <span>TO FINISH</span><b>{Math.max(0, FINISH_ROW - (me?.y ?? 0))}</b>
+              <span>TO FINISH</span>
+              <b>{Math.max(0, FINISH_ROW - (me?.y ?? 0))}</b>
             </div>
+            {state.phase === "countdown" && (
+              <div className="crossy-countdown" role="status" aria-live="assertive">
+                <small>ROUND {state.round} · GET READY</small>
+                <b key={state.countdownTicks <= 3 ? "go" : Math.ceil(state.countdownTicks / (1000 / TICK_MS))}>
+                  {state.countdownTicks <= 3
+                    ? "GO!"
+                    : Math.ceil(state.countdownTicks / (1000 / TICK_MS))}
+                </b>
+              </div>
+            )}
             {state.phase === "racing" && me && !me.alive && (
               <div className="crossy-down-banner">
-                <span>💥</span><b>OOPS! BACK IN A MOMENT</b>
+                <span>💥</span>
+                <b>OOPS! BACK IN A MOMENT</b>
               </div>
             )}
             {state.phase === "intermission" && (
@@ -990,63 +1346,117 @@ function CrossyRace() {
                 <span>🏆</span>
                 <small>ROUND {state.round} WINNER</small>
                 <b>{nameOf(state.roundWinners[0] ?? "")}</b>
-                <em>ROUND {state.round + 1} STARTS IN {Math.ceil(state.intermissionTicks / (1000 / TICK_MS))}</em>
+                <em>ROUND {state.round + 1} IS UP NEXT</em>
               </div>
             )}
             {state.phase === "finished" && (
               <div className="crossy-results">
                 <span className="crossy-results-trophy">🏆</span>
                 <small>FOUR ROUNDS · ONE CHAMPION</small>
-                <h2>{state.winners.length > 1 ? "It's a tie!" : `${nameOf(state.winners[0] ?? "")} wins!`}</h2>
-                <p>{state.winners.map(nameOf).join(" & ")} · {state.roundWins[state.winners[0] ?? ""] ?? 0} round wins</p>
-                {isHost()
-                  ? <button className="crossy-button crossy-results-button" onClick={returnToLobby}>Back to lobby</button>
-                  : <em>Waiting for the host to return to the lobby…</em>}
+                <h2>
+                  {state.winners.length > 1
+                    ? "It's a tie!"
+                    : `${nameOf(state.winners[0] ?? "")} wins!`}
+                </h2>
+                <p>
+                  {state.winners.map(nameOf).join(" & ")} ·{" "}
+                  {state.roundWins[state.winners[0] ?? ""] ?? 0} round wins
+                </p>
+                {isHost() ? (
+                  <button
+                    className="crossy-button crossy-results-button"
+                    onClick={returnToLobby}
+                  >
+                    Back to lobby
+                  </button>
+                ) : (
+                  <em>Waiting for the host to return to the lobby…</em>
+                )}
               </div>
             )}
           </div>
           <div className="crossy-board-footer">
-            <span>↑ Hop forward</span><i />
-            <span>Ride the logs</span><i />
+            <span>↑ Hop forward</span>
+            <i />
+            <span>Ride the logs</span>
+            <i />
             <span>Watch the traffic!</span>
           </div>
-          {state.phase === "racing" && <div className="crossy-touch-controls" aria-label="Movement controls">
-            <button onClick={() => move("up")} aria-label="Hop forward">↑</button>
-            <button onClick={() => move("left")} aria-label="Hop left">←</button>
-            <button onClick={() => move("down")} aria-label="Hop back">↓</button>
-            <button onClick={() => move("right")} aria-label="Hop right">→</button>
-          </div>}
+          {state.phase === "racing" && (
+            <div
+              className="crossy-touch-controls"
+              aria-label="Movement controls"
+            >
+              <button onClick={() => move("up")} aria-label="Hop forward">
+                ↑
+              </button>
+              <button onClick={() => move("left")} aria-label="Hop left">
+                ←
+              </button>
+              <button onClick={() => move("down")} aria-label="Hop back">
+                ↓
+              </button>
+              <button onClick={() => move("right")} aria-label="Hop right">
+                →
+              </button>
+            </div>
+          )}
         </section>
 
         <aside className="crossy-side">
           <section className="crossy-leaderboard">
             <div className="crossy-panel-heading">
-              <div><small>THE CREW</small><h2>Leaderboard</h2></div>
-              <span>{standings.length} RACER{standings.length === 1 ? "" : "S"}</span>
+              <div>
+                <small>THE CREW</small>
+                <h2>Leaderboard</h2>
+              </div>
+              <span>
+                {standings.length} RACER{standings.length === 1 ? "" : "S"}
+              </span>
             </div>
             <ol>
               {standings.map((player, index) => (
-                <li key={player.id} className={player.id === selfId ? "is-self" : ""}>
+                <li
+                  key={player.id}
+                  className={player.id === selfId ? "is-self" : ""}
+                >
                   <span className={`crossy-place place-${index + 1}`}>
                     {index === 0 ? "★" : String(index + 1).padStart(2, "0")}
                   </span>
                   <span
                     className="crossy-player-avatar"
-                    style={{ "--player-hue": hueOf(player.id) } as CSSProperties}
-                  >{animalForPlayer(player.id).emoji}</span>
-                  <span className="crossy-player-name">
-                    <b>{player.name}{player.id === selfId && <small>YOU</small>}</b>
-                    <em>{state.phase === "finished" && state.winners.includes(player.id)
-                      ? "Race champion"
-                      : state.phase === "intermission" && state.roundWinners.includes(player.id)
-                        ? "Round winner"
-                        : !player.joinedRace
-                          ? "Ready to race"
-                        : state.phase === "racing"
-                          ? player.alive ? "On the move" : "Respawning…"
-                          : "Race complete"}</em>
+                    style={
+                      { "--player-hue": hueOf(player.id) } as CSSProperties
+                    }
+                  >
+                    {animalForPlayer(player.id).emoji}
                   </span>
-                  <span className="crossy-player-score">{player.score}<small>WINS</small><em>BEST {player.best}</em></span>
+                  <span className="crossy-player-name">
+                    <b>
+                      {player.name}
+                      {player.id === selfId && <small>YOU</small>}
+                    </b>
+                    <em>
+                      {state.phase === "finished" &&
+                      state.winners.includes(player.id)
+                        ? "Race champion"
+                        : state.phase === "intermission" &&
+                            state.roundWinners.includes(player.id)
+                          ? "Round winner"
+                          : !player.joinedRace
+                            ? "Ready to race"
+                            : state.phase === "racing"
+                              ? player.alive
+                                ? "On the move"
+                                : "Respawning…"
+                              : "Race complete"}
+                    </em>
+                  </span>
+                  <span className="crossy-player-score">
+                    {player.score}
+                    <small>WINS</small>
+                    <em>BEST {player.best}</em>
+                  </span>
                 </li>
               ))}
               {standings.length === 0 && (
@@ -1056,18 +1466,48 @@ function CrossyRace() {
           </section>
           <section className="crossy-howto">
             <div className="crossy-panel-heading">
-              <div><small>QUICK TIPS</small><h2>Stay frosty</h2></div>
+              <div>
+                <small>QUICK TIPS</small>
+                <h2>Stay frosty</h2>
+              </div>
               <span aria-hidden="true">✦</span>
             </div>
-            <p><i>01</i><span>Follow the traffic gaps. Cars move every lane at a different speed.</span></p>
-            <p><i>02</i><span>Blue water is safe only while you’re standing on a log.</span></p>
-            <p><i>03</i><span>Reach the finish first to win the round. Four rounds decide the champion.</span></p>
+            <p>
+              <i>01</i>
+              <span>
+                Follow the traffic gaps. Cars move every lane at a different
+                speed.
+              </span>
+            </p>
+            <p>
+              <i>02</i>
+              <span>
+                Blue water is safe only while you’re standing on a log.
+              </span>
+            </p>
+            <p>
+              <i>03</i>
+              <span>
+                Reach the finish first to win the round. Four rounds decide the
+                champion.
+              </span>
+            </p>
           </section>
         </aside>
       </div>
       <div className="crossy-control-hint">
-        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> to move</span>
-        <span className="crossy-control-note">Your next great run starts with one brave hop.</span>
+        <span>
+          <kbd>W</kbd>
+          <kbd>A</kbd>
+          <kbd>S</kbd>
+          <kbd>D</kbd> or <kbd>↑</kbd>
+          <kbd>←</kbd>
+          <kbd>↓</kbd>
+          <kbd>→</kbd> to move
+        </span>
+        <span className="crossy-control-note">
+          Your next great run starts with one brave hop.
+        </span>
       </div>
       <ChatBox variant="game" />
     </main>

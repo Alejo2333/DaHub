@@ -8,6 +8,7 @@ export const VIEW_ROWS = 14;
 export const FINISH_ROW = 20;
 export const TOTAL_ROUNDS = 4;
 export const ROUND_BREAK_TICKS = 30;
+export const COUNTDOWN_TICKS = 30;
 export const RESPAWN_TICKS = 10;
 const CAR_COLLISION_RADIUS = 0.68;
 const LOG_COLLISION_RADIUS = 1;
@@ -30,8 +31,9 @@ export interface PlayerState {
 
 export interface CrossyState {
   tick: number;
-  phase: "racing" | "intermission" | "finished";
+  phase: "countdown" | "racing" | "intermission" | "finished";
   round: number;
+  countdownTicks: number;
   intermissionTicks: number;
   roundWinners: string[];
   winners: string[];
@@ -62,8 +64,10 @@ const isScoreMap = (x: unknown): x is Record<string, number> =>
 const net: GameNet<CrossyState, CrossyAction> = {
   isState: (x): x is CrossyState =>
     isRec(x) && isNum(x.tick) && Number.isInteger(x.tick) && x.tick >= 0 &&
-    (x.phase === "racing" || x.phase === "intermission" || x.phase === "finished") &&
+    (x.phase === "countdown" || x.phase === "racing" ||
+      x.phase === "intermission" || x.phase === "finished") &&
     isNum(x.round) && Number.isInteger(x.round) && x.round >= 1 && x.round <= TOTAL_ROUNDS &&
+    isNum(x.countdownTicks) && Number.isInteger(x.countdownTicks) && x.countdownTicks >= 0 &&
     isNum(x.intermissionTicks) && Number.isInteger(x.intermissionTicks) && x.intermissionTicks >= 0 &&
     Array.isArray(x.roundWinners) && x.roundWinners.every((id) => typeof id === "string") &&
     Array.isArray(x.winners) && x.winners.every((id) => typeof id === "string") &&
@@ -76,8 +80,9 @@ const net: GameNet<CrossyState, CrossyAction> = {
   createHost(ctx) {
     const state: CrossyState = {
       tick: 0,
-      phase: "racing",
+      phase: "countdown",
       round: 1,
+      countdownTicks: COUNTDOWN_TICKS,
       intermissionTicks: 0,
       roundWinners: [],
       winners: [],
@@ -134,9 +139,24 @@ const net: GameNet<CrossyState, CrossyAction> = {
       }
     };
     const wrap = (x: number) => ((x % BOARD_WIDTH) + BOARD_WIDTH) % BOARD_WIDTH;
+    const addPlayer = (id: string) => {
+      if (state.players[id]) return;
+      state.players[id] = {
+        x: Math.floor(BOARD_WIDTH / 2),
+        y: 0,
+        alive: true,
+        best: 0,
+      };
+      state.scores[id] = state.scores[id] ?? 0;
+      state.roundWins[id] = state.roundWins[id] ?? 0;
+      state.totalRows[id] = state.totalRows[id] ?? 0;
+    };
+    for (const player of ctx.players()) addPlayer(player.id);
+
     const startNextRound = () => {
       state.round += 1;
-      state.phase = "racing";
+      state.phase = "countdown";
+      state.countdownTicks = COUNTDOWN_TICKS;
       state.intermissionTicks = 0;
       state.roundWinners = [];
       state.rows = [];
@@ -180,6 +200,15 @@ const net: GameNet<CrossyState, CrossyAction> = {
       if (state.phase === "intermission") {
         state.intermissionTicks -= 1;
         if (state.intermissionTicks <= 0) startNextRound();
+        ctx.publish();
+        return;
+      }
+      if (state.phase === "countdown") {
+        state.countdownTicks -= 1;
+        if (state.countdownTicks <= 0) {
+          state.countdownTicks = 0;
+          state.phase = "racing";
+        }
         ctx.publish();
         return;
       }
@@ -238,17 +267,7 @@ const net: GameNet<CrossyState, CrossyAction> = {
         if (action.t !== "MOVE" || state.phase !== "racing") return;
         const now = Date.now();
         if (now - (lastMove.get(from) ?? -Infinity) < TICK_MS || !Number.isFinite(now)) return;
-        if (!state.players[from]) {
-          state.players[from] = {
-            x: Math.floor(BOARD_WIDTH / 2),
-            y: 0,
-            alive: true,
-            best: 0,
-          };
-          state.scores[from] = state.scores[from] ?? 0;
-          state.roundWins[from] = state.roundWins[from] ?? 0;
-          state.totalRows[from] = state.totalRows[from] ?? 0;
-        }
+        addPlayer(from);
         const p = state.players[from];
         if (!p.alive) return;
         lastMove.set(from, now);

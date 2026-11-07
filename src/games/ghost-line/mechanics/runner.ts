@@ -204,6 +204,15 @@ const set = (r: Runner, move: Move, dur = 0) => {
   r.dur = dur;
 };
 const speedOf = (r: Runner) => RUN_SPEED + FLOW_SPEED * r.flow + r.boost;
+/**
+ * Sets the path of a trick over obstacle ground. The trick takes the same time at any speed, as at the base run speed,
+ * and at higher speeds it travels farther in that time instead of playing faster.
+ */
+function pathTrick(r: Runner, x1: number, k: number) {
+  const dur = (x1 - r.x) / (RUN_SPEED * k);
+  r.to = { x: Math.max(x1, r.x + Math.max(speedOf(r), r.vx) * k * dur), y: r.y };
+  return dur;
+}
 const ease = (p: number) => p * p * (3 - 2 * p);
 const inZone = (kind: Exclude<ZoneKind, "mat">, dist: number) =>
   dist >= PERFECT[kind][0] && dist <= PERFECT[kind][1];
@@ -237,7 +246,7 @@ function startVault(r: Runner, ob: Obstacle) {
   r.arc = ob.h * 0.62;
   r.grounded = false;
   r.vy = 0;
-  set(r, "vault", (x1 - r.x) / Math.max(speedOf(r), r.vx));
+  set(r, "vault", pathTrick(r, x1, 1));
 }
 /** Starts the next trick in a chain. One press plays the whole chain, each trick flowing straight out of the last. */
 function startChainMove(r: Runner) {
@@ -263,11 +272,7 @@ function startBlockTrick(r: Runner, ob: Obstacle) {
   r.grounded = false;
   r.vy = 0;
   r.pending = kong ? "kong" : "dashvault";
-  set(
-    r,
-    kong ? "kong" : "dashvault",
-    (x1 - r.x) / (Math.max(speedOf(r), r.vx) * 1.12),
-  );
+  set(r, kong ? "kong" : "dashvault", pathTrick(r, x1, 1.12));
 }
 function startClimb(r: Runner, ledgeX: number, topY: number, slow = 1) {
   r.from = { x: r.x, y: r.y };
@@ -319,7 +324,7 @@ function startHandspring(r: Runner, ob: Obstacle) {
   r.grounded = false;
   r.vy = 0;
   r.pending = "handspring";
-  set(r, "handspring", (x1 - r.x) / (Math.max(speedOf(r), r.vx) * 1.12));
+  set(r, "handspring", pathTrick(r, x1, 1.12));
 }
 function respawn(r: Runner, c: Course) {
   const cp = c.checkpoints[r.nextCheck - 1] ?? { x: 0, y: 0 };
