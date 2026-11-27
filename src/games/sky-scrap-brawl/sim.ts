@@ -4,7 +4,7 @@
  * here: they are emitted as short events that every client turns into particles on its own.
  */
 import {
-  AP, BLAST, FLY, FR, FREEZE, GRAV, GUNS, H, JUMP, JUMP2, KEY, LIVES, MAPS, MAX_FIGHTERS, NADE, ONETAP,
+  AP, BLAST, FLY, FR, FREEZE, GRAV, GUNS, H, JUMP, JUMP2, KEY, LIVES, MAPS, MAX_FIGHTERS, NADE, ONETAP, ONETAP_SNIPER,
   POOL, PRESS, PWN, ROSTER, SHIELD, SK, SKI, TOUCH, W,
 } from './shared';
 import type { MatchSnap } from './shared';
@@ -70,7 +70,7 @@ export function createMatch(humans: string[], mid: number): Match {
     p.cn = (t - (p.ct || -9) < 1.3 ? p.cn : 0) + 1; p.ct = t;
     pop(p, tag ? .9 : .6, !!tag, 0, tag || (!foe || b.k == 'grenade' ? 'BOOM' : b.c ? 'CRIT!' : (p.cn > 1 ? p.cn + ' HIT' : 'HIT')));
     shake(6); burst(b.x, b.y, col(p), 8); if (b.c) { burst(b.x, b.y, '#ff3b3b', 16); shake(10) }
-    if (b.c && Math.random() < ONETAP) oneTap(p, dir);
+    if (b.c && Math.random() < (b.k == 'sniper' ? ONETAP_SNIPER : ONETAP)) oneTap(p, dir);
   }
   // launched fighters lose control and pass through floors until they leave the map
   function oneTap(p, dir) { p.fly = dir; p.vy = -420; p.ground = null; p.thr = false; pop(p, 1.1, 1, 1, '1 TAP!'); shake(14); burst(p.x, p.y - 24, '#fff2a0', 30); ring(p.x, p.y - 24, 140, .5, '#ff3b3b') }
@@ -86,6 +86,7 @@ export function createMatch(humans: string[], mid: number): Match {
   function dropNade(p) {
     if (p.nades <= 0 || p.ncd > 0) return; p.nades--; p.ncd = NADE.cd; (p.src || p).stats.shots++;
     bullets.push({ i: ++uid, a: 0, x: p.x, y: p.y - 14, vx: 0, vy: 0, l: NADE.fuse, push: NADE.push, owner: p, sh: { hit: false, x: p.x }, k: 'grenade', c: false });
+    emit('n', R(p.x));
   }
   function mkClone(o) {
     const c = fighter(o.r, null, o.x + (o.face > 0 ? -30 : 30), o.y - 4);
@@ -142,9 +143,13 @@ export function createMatch(humans: string[], mid: number): Match {
       const py = p.y; p.x += (p.vx + p.kx) * dt; p.y += p.vy * dt; p.ground = null;
       if (!p.fly && p.vy >= 0 && p.drop <= 0) for (const s of plats) if (p.x > s.x - 10 && p.x < s.x + s.w + 10 && py <= s.y + 1 && p.y >= s.y) { p.y = s.y; p.vy = 0; p.jumps = 2; p.ground = s; break }
       if (!p.ground && p.jumps == 2) p.jumps = 1;
-      if (p.y > H + 260 || p.x < -320 || p.x > W + 320) {
+      // walking or being knocked past a side edge wraps around to the other side; only the bottom (or a 1 TAP launch) is a fall
+      const EDGE = 320, SPAN = W + EDGE * 2;
+      if (!p.fly) { if (p.x < -EDGE) p.x += SPAN; else if (p.x > W + EDGE) p.x -= SPAN }
+      if (p.y > H + 260 || p.x < -EDGE || p.x > W + EDGE) {
         if (p.clone) { p.lives = 0; continue }
         p.lives--; shake(10); p.stats.falls++; if (p.lives <= 0) p.stats.out = t; if (p.by) (p.by.src || p.by).stats.kos++;
+        emit('fl', R(Math.max(0, Math.min(W, p.x))));
         emit('kf', p.by ? p.by.r : -1, p.r);
         if (checkEnd()) return;
         Object.assign(p, { x: 220 + Math.random() * 520, y: 20, vx: 0, vy: 0, kx: 0, safe: 2.2, wobble: 0, gun: 'popper', ammo: Infinity, jumps: 1, by: null, fx: {}, fly: 0, nades: NADE.n, ncd: 0 });
@@ -162,7 +167,7 @@ export function createMatch(humans: string[], mid: number): Match {
         if (lob) { touched = true; break }
         b.l = 0; hit(p, b, Math.sign(b.vx), b.push, 110);
       }
-      if (lob) { const s = b.vy > 0 && plats.find(s => b.x > s.x && b.x < s.x + s.w && by <= s.y && b.y >= s.y); if (s) { b.y = s.y - 8; b.vy = 0; b.rest = true } if (touched || b.l <= 0) explode(b) }
+      if (lob) { const s = b.vy > 0 && plats.find(s => b.x > s.x && b.x < s.x + s.w && by <= s.y && b.y >= s.y); if (s) { b.y = s.y - 8; b.vy = 0; b.rest = true; emit('nl', R(b.x)) } if (touched || b.l <= 0) explode(b) }
     }
     bullets = bullets.filter(b => b.l > 0);
 
