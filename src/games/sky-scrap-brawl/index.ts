@@ -125,7 +125,7 @@ const game: GameModule = {
     "You carry 3 grenades, refilled on respawn. The blast throws everyone near it, including you.",
     "Glowing orbs give skills: Jetpack, Speed, Clone, Ghost and Shield.",
     "Falling crates give a random gun: Boomstick, Rattler, Freezer, Revolver, Sniper or Rifle.",
-    "Revolver and Sniper shots are always critical hits, and any critical hit has a 15% chance to 1 TAP an enemy off the map.",
+    "Revolver and Sniper shots are always critical hits, and any critical hit has a 15% chance to 1 TAP an enemy off the map (85% with the Sniper).",
     "The last fighter with lives left wins.",
   ],
   controls: ["Move: A/D or arrows", "Jump (twice): W or Up", "Drop down: S or Down", "Fire: Space or J (hold)", "Grenade: G or K", "Fullscreen: F", "On touch screens: the on-screen buttons"],

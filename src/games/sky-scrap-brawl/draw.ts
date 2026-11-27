@@ -3,7 +3,7 @@
  * Runs on every client, the host included. It draws the snapshots the host publishes, smoothing
  * fighters between them, and builds all particles locally from the snapshot's events.
  */
-import { bloodSound, explosionSound, gunSound } from './sound';
+import { bloodSound, explosionSound, fallSound, grenadeLandSound, grenadeSound, gunSound, preloadSounds } from './sound';
 import { BLAST, GUNS, H, INK, MAPS, MZ, NADE, ROSTER, SHIELD, SKI, W } from './shared';
 import type { MatchSnap } from './shared';
 
@@ -17,6 +17,7 @@ export interface Renderer {
 
 export function createRenderer(cv: HTMLCanvasElement): Renderer {
   const g = cv.getContext('2d');
+  preloadSounds();
   const reduce = matchMedia('(prefers-reduced-motion:reduce)');
   const num = v => typeof v === 'number' && Number.isFinite(v) ? v : 0;
   let Z = .8, VX = -160, VY = 0;
@@ -51,6 +52,9 @@ export function createRenderer(cv: HTMLCanvasElement): Renderer {
     else if (ty === 'r') rings.push({ x: n(0), y: n(1), mr: Math.min(300, n(2)), l: Math.min(2, n(3)), l0: Math.min(2, n(3)) || 1, col: str(4) });
     else if (ty === 's') shatter(n(0), n(1), Math.min(40, n(2)), n(3));
     else if (ty === 'x') { boom(n(0), n(1)); explosionSound(n(0)) }
+    else if (ty === 'n') grenadeSound(n(0));
+    else if (ty === 'nl') grenadeLandSound(n(0));
+    else if (ty === 'fl') fallSound(n(0));
     else if (ty === 'k') shake = Math.max(shake, Math.min(20, n(0)));
     else if (ty === 'l') landFx(n(0), n(1));
     else if (ty === 'o') spawnFx(n(0), n(1), str(2));
@@ -79,7 +83,7 @@ export function createRenderer(cv: HTMLCanvasElement): Renderer {
     meU = cur.P.find(p => p.id === self && !p.c)?.u ?? -1;
     const ago = t - cur.t; // render a little behind the newest snapshot; bullets and timers are rewound to match
     bullets = cur.B.filter(b => b.a + ago >= 0).map(b => {
-      const x = b.x + b.vx * ago, y = b.y + b.vy * ago, tl = Math.min(b.a + ago, (b.k == 'sniper' ? 12 : 10) / 60);
+      const x = b.x + b.vx * ago, y = b.y + b.vy * ago, tl = Math.min(b.a + ago, (b.k == 'sniper' ? 24 : 10) / 60);
       return { k: b.k, c: b.c, x, y, l: b.l - ago, h: [[x - b.vx * tl, y - b.vy * tl], [x, y]] };
     });
     const cm = new Map(prev ? prev.C.map(c => [c.i, c]) : []);
@@ -178,6 +182,11 @@ export function createRenderer(cv: HTMLCanvasElement): Renderer {
       if (p.fly) puffs.push({ x: p.x, y: p.y - 24, vx: 0, vy: 0, l: .4, l0: .4, r: 7, g: 14, col: '255,244,224' });
     }
     for (const b of bullets) if (b.k == 'freeze') { puffs.push({ x: b.x, y: b.y + (Math.random() - .5) * 8, vx: (Math.random() - .5) * 20, vy: 10 + Math.random() * 20, l: .35, l0: .35, r: 3, g: 14, col: '215,244,255' }); if (Math.random() < .4) shatter(b.x, b.y, 1, 50) }
+    else if (b.k == 'sniper') { // embers and a dark, blood-tinged smoke wake along the round's path
+      const [tx, ty] = b.h[0], R = Math.random;
+      for (let i = 0; i < 3; i++) { const f = R(); parts.push({ x: tx + (b.x - tx) * f, y: ty + (b.y - ty) * f, vx: (R() - .5) * 90, vy: -40 - R() * 80, l: .18 + R() * .15, col: R() < .5 ? '#ff2a2a' : '#ffb3a0' }) }
+      for (let i = 0; i < 2; i++) { const f = R() * .8; puffs.push({ x: tx + (b.x - tx) * f, y: ty + (b.y - ty) * f + (R() - .5) * 6, vx: (R() - .5) * 16, vy: -6 - R() * 10, l: .55, l0: .55, r: 3, g: 18, col: R() < .5 ? '60,8,10' : '90,20,24' }) }
+    }
     shake = Math.max(0, shake - dt * 30); bloodTick(dt);
     for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 700 * dt; q.l -= dt } parts = parts.filter(q => q.l > 0);
     for (const q of puffs) { q.x += q.vx * dt; q.y += q.vy * dt; q.r += (q.g || 20) * dt; q.l -= dt } puffs = puffs.filter(q => q.l > 0);
@@ -300,12 +309,39 @@ export function createRenderer(cv: HTMLCanvasElement): Renderer {
   function bullet(b) {
     const k = b.k, h = b.h || [], w = k == 'freeze' ? 7 : k == 'boom' ? 2 : b.c ? 4 : 2.8;
     if (k == 'grenade') { dot(b.x, b.y, 8, '#4f6b2f'); dot(b.x + Math.cos(b.l * 18) * 8, b.y + Math.sin(b.l * 18) * 8, 3, Math.floor(b.l * 10) % 2 ? '#ff3b3b' : '#ffe066'); return }
+    if (k == 'sniper' && h.length > 1) { sniperTrace(b, h[0]); return }
     if (h.length > 1) {
       const tl = h[0], gr = g.createLinearGradient(tl[0], tl[1], b.x, b.y);
       if (k == 'freeze') { gr.addColorStop(0, 'rgba(150,220,255,0)'); gr.addColorStop(1, '#cff4ff') } else { gr.addColorStop(0, b.c ? 'rgba(255,90,70,0)' : 'rgba(255,240,190,0)'); gr.addColorStop(.7, b.c ? 'rgba(255,205,175,.85)' : 'rgba(255,244,200,.85)'); gr.addColorStop(1, '#fff') }
       g.lineCap = 'round'; g.strokeStyle = gr; g.lineWidth = w; g.beginPath(); g.moveTo(tl[0], tl[1]); g.lineTo(b.x, b.y); g.stroke(); g.lineCap = 'butt';
     }
     if (k == 'freeze') { puff(b.x, b.y, 26, [[0, 'rgba(210,247,255,.9)'], [1, 'rgba(120,210,255,0)']]); g.save(); g.translate(b.x, b.y); g.rotate(t * 14); g.beginPath(); for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6, r = i % 2 ? 5 : 13; g.lineTo(Math.cos(a) * r, Math.sin(a) * r) } g.closePath(); g.fillStyle = '#cdf2ff'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = '#2c78ad'; g.stroke(); g.fillStyle = '#fff'; g.beginPath(); g.arc(0, 0, 4, 0, 7); g.fill(); g.restore() }
+  }
+  /** Sniper round: a crimson, flickering beam with a white-hot core and a blazing, pulsing head. */
+  function sniperTrace(b, tl) {
+    const [tx, ty] = tl, x = b.x, y = b.y, fl = .85 + Math.random() * .3, pulse = 1 + Math.sin(lt * 60) * .15;
+    const line = (w, col, blur = 0, glow = '') => { g.lineWidth = w; g.strokeStyle = col; g.shadowBlur = blur; g.shadowColor = glow; g.beginPath(); g.moveTo(tx, ty); g.lineTo(x, y); g.stroke() };
+    const fade = (a, mid, head) => { const gr = g.createLinearGradient(tx, ty, x, y); gr.addColorStop(0, a); gr.addColorStop(.55, mid); gr.addColorStop(1, head); return gr };
+    g.save(); g.lineCap = 'round';
+    line(22 * fl, fade('rgba(60,0,0,0)', 'rgba(70,0,6,.35)', 'rgba(90,0,10,.55)')); // dark menacing halo
+    g.globalCompositeOperation = 'lighter';
+    line(13 * fl, fade('rgba(255,0,20,0)', 'rgba(255,20,30,.35)', 'rgba(255,40,40,.7)'), 24, 'rgba(255,0,0,.9)');
+    line(6 * fl, fade('rgba(255,60,40,0)', 'rgba(255,90,70,.8)', '#ff6a50'), 12, '#ff2020');
+    line(2.2, fade('rgba(255,255,255,0)', 'rgba(255,225,215,.9)', '#ffffff'), 6, '#ffffff');
+    // a jagged energy crackle wrapping the beam
+    const dx = x - tx, dy = y - ty, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+    g.lineWidth = 1.4; g.strokeStyle = 'rgba(255,120,110,.75)'; g.shadowBlur = 8; g.shadowColor = '#ff0000'; g.beginPath();
+    for (let i = 0; i <= 10; i++) { const f = .3 + i * .07, o = (Math.random() - .5) * 10 * f; g.lineTo(tx + dx * f + nx * o, ty + dy * f + ny * o) }
+    g.stroke();
+    // blazing head
+    g.shadowBlur = 0;
+    puff(x, y, 34 * pulse * fl, [[0, 'rgba(255,240,230,.95)'], [.18, 'rgba(255,60,50,.8)'], [.5, 'rgba(200,0,10,.35)'], [1, 'rgba(120,0,0,0)']]);
+    g.save(); g.translate(x, y); g.rotate(Math.atan2(dy, dx)); g.fillStyle = 'rgba(255,200,190,.9)';
+    g.beginPath(); g.moveTo(16 * pulse, 0); g.lineTo(0, 3.5); g.lineTo(-6, 0); g.lineTo(0, -3.5); g.closePath(); g.fill(); // spear-tip glint
+    g.fillRect(-1, -18 * fl, 2, 36 * fl); // lens flare spike
+    g.restore();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill();
+    g.restore();
   }
   function head(p) {
     dot(0, -40, 18, '#ffd9b0'); const n = p.name;

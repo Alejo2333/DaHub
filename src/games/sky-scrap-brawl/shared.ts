@@ -5,20 +5,20 @@ export type GunKey = 'popper' | 'boom' | 'rattler' | 'freeze' | 'revolver' | 'sn
 export interface Gun { name: string; cd: number; push: number; speed: number; n: number; spread: number; jit?: number; life: number; recoil: number; ammo: number; crit?: number }
 export const GUNS: Record<GunKey, Gun> = {
   popper: { name: 'Popper', cd: .28, push: 340, speed: 760, n: 1, spread: 0, life: 1.2, recoil: 15, ammo: Infinity },
-  boom: { name: 'Boomstick', cd: .8, push: 250, speed: 680, n: 5, spread: 210, life: .3, recoil: 260, ammo: 8 },
+  boom: { name: 'Boomstick', cd: .8, push: 250, speed: 680, n: 5, spread: 210, life: .37, recoil: 260, ammo: 10 },
   rattler: { name: 'Rattler', cd: .09, push: 90, speed: 900, n: 1, spread: 0, jit: 70, life: .8, recoil: 30, ammo: 30 },
   freeze: { name: 'Freezer', cd: 1.1, push: 80, speed: 620, n: 1, spread: 0, life: 1.2, recoil: 60, ammo: 3 },
   revolver: { name: 'Revolver', cd: .55, push: 380, speed: 1000, n: 1, spread: 0, life: .9, recoil: 90, ammo: 6, crit: 1 },
-  sniper: { name: 'Sniper', cd: 1.2, push: 520, speed: 1700, n: 1, spread: 0, life: .8, recoil: 640, ammo: 5, crit: 1 },
-  rifle: { name: 'Rifle', cd: .12, push: 150, speed: 1050, n: 1, spread: 0, jit: 40, life: .8, recoil: 40, ammo: 15, crit: .2 },
+  sniper: { name: 'Sniper', cd: 1.2, push: 520, speed: 1700, n: 1, spread: 0, life: .8, recoil: 640, ammo: 10, crit: 1 },
+  rifle: { name: 'Rifle', cd: .12, push: 150, speed: 1050, n: 1, spread: 0, jit: 40, life: .8, recoil: 40, ammo: 25, crit: .2 },
 };
 export const GUN_KEYS = Object.keys(GUNS) as GunKey[];
 export const NADE = { n: 3, fuse: 1.5, cd: .6, push: 1000, lift: 620 };
-export const GRAV = 900, BLAST = 150, SHIELD = 4, FREEZE = 2.5, JUMP = 690, JUMP2 = 640, TOUCH = 30, PWN = 90, ONETAP = .15, FLY = 1600;
+export const GRAV = 900, BLAST = 150, SHIELD = 4, FREEZE = 2.5, JUMP = 690, JUMP2 = 640, TOUCH = 30, PWN = 90, ONETAP = .15, ONETAP_SNIPER = .85, FLY = 1600;
 export const POOL: GunKey[] = ['boom', 'rattler', 'freeze', 'revolver', 'sniper', 'rifle'];
 /** Bot approach distance and firing range per gun. */
-export const AP: Record<string, number> = { boom: 150, rattler: 220, freeze: 300, revolver: 300, sniper: 450, rifle: 260 };
-export const FR: Record<string, number> = { boom: 200, rattler: 420, freeze: 520, revolver: 450, sniper: 700, rifle: 480 };
+export const AP: Record<string, number> = { boom: 180, rattler: 220, freeze: 300, revolver: 300, sniper: 450, rifle: 260 };
+export const FR: Record<string, number> = { boom: 245, rattler: 420, freeze: 520, revolver: 450, sniper: 700, rifle: 480 };
 /** Muzzle offset per gun. */
 export const MZ: Record<GunKey, number> = { popper: 36, boom: 49, rattler: 40, freeze: 48, revolver: 45, sniper: 72, rifle: 55 };
 
