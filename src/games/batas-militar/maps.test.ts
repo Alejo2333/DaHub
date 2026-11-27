@@ -131,7 +131,7 @@ describe("weapon drops", () => {
 
 describe("weapons", () => {
   it("has the full arsenal with sane stats", () => {
-    expect(WEAPONS.map((w) => w.name)).toEqual(["Rifle", "Shotgun", "SMG", "Sniper", "Laser", "Bazooka"]);
+    expect(WEAPONS.map((w) => w.name)).toEqual(["Pistol", "Shotgun", "SMG", "Sniper", "Laser", "Bazooka", "Rifle"]);
     for (const w of WEAPONS) expect(w.ammo > 0 && w.cooldown > 0 && w.dmg > 0).toBe(true);
   });
 });

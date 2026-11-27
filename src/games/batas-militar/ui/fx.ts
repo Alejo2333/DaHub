@@ -3,17 +3,19 @@
  * Purely cosmetic — the host decides hits and damage. Particles are pooled and drawn from
  * pre-rendered gradient sprites, so a big explosion costs a few dozen drawImage calls.
  */
-import { BLAST_RADIUS } from "..";
+import { BAZOOKA, BLAST_RADIUS, LASER, PISTOL, RIFLE, SHOTGUN, SMG, SNIPER } from "..";
 import { segHit, surfaceBelow, type MapDefinition } from "../maps";
 import type { G } from "./art";
 
-const enum K { Fire, Smoke, Debris, Spark, Flash, Ring, Scorch, Trail, Ember, Dust, Blood, Gib, Splat, Mist }
+const enum K { Fire, Smoke, Debris, Spark, Flash, Ring, Scorch, Trail, Ember, Dust, Blood, Gib, Splat, Mist, MFlash, Wisp, Casing, Num }
 interface Part {
   k: K; x: number; y: number; vx: number; vy: number;
   age: number; life: number; r: number; rot: number; vr: number;
   x2: number; y2: number; shade: number;
   /** Gibs: which body part, its colour hue, and whether it has come to rest. */
   part: number; hue: number; rest: boolean;
+  /** Muzzle flashes and casings: angle and weapon. Damage numbers: text. */
+  a: number; w: number; txt: string;
 }
 
 const MAX = 900;
@@ -23,7 +25,7 @@ const pool: Part[] = [];
 function add(k: K, x: number, y: number, o: Partial<Part> = {}) {
   if (parts.length >= MAX) return;
   const p = pool.pop() ?? ({} as Part);
-  p.k = k; p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.age = 0; p.life = 1; p.r = 10; p.rot = 0; p.vr = 0; p.x2 = x; p.y2 = y; p.shade = 0; p.part = 0; p.hue = 0; p.rest = false;
+  p.k = k; p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.age = 0; p.life = 1; p.r = 10; p.rot = 0; p.vr = 0; p.x2 = x; p.y2 = y; p.shade = 0; p.part = 0; p.hue = 0; p.rest = false; p.a = 0; p.w = 0; p.txt = "";
   Object.assign(p, o);
   parts.push(p);
 }
@@ -31,7 +33,7 @@ const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
 /* ───────── Sprites ───────── */
 
-let sprites: Record<"hot" | "fire" | "smoke" | "glow" | "redGlow" | "blood", HTMLCanvasElement> | null = null;
+let sprites: Record<"hot" | "fire" | "smoke" | "glow" | "redGlow" | "blood" | "wisp", HTMLCanvasElement> | null = null;
 function blob(stops: [number, string][]) {
   const c = document.createElement("canvas");
   c.width = c.height = 128;
@@ -45,6 +47,7 @@ function sp() {
     hot: blob([[0, "rgba(255,255,240,1)"], [0.25, "rgba(255,236,150,0.95)"], [0.55, "rgba(255,170,40,0.55)"], [1, "rgba(255,120,20,0)"]]),
     fire: blob([[0, "rgba(255,190,80,1)"], [0.35, "rgba(250,110,20,0.9)"], [0.7, "rgba(190,45,10,0.45)"], [1, "rgba(120,20,5,0)"]]),
     smoke: blob([[0, "rgba(58,53,50,0.95)"], [0.5, "rgba(48,44,42,0.65)"], [1, "rgba(40,38,36,0)"]]),
+    wisp: blob([[0, "rgba(215,212,205,0.7)"], [0.55, "rgba(200,198,192,0.35)"], [1, "rgba(190,190,190,0)"]]),
     blood: blob([[0, "rgba(150,10,10,0.75)"], [0.6, "rgba(120,5,5,0.35)"], [1, "rgba(90,0,0,0)"]]),
     glow: blob([[0, "rgba(255,255,255,1)"], [0.3, "rgba(255,240,200,0.6)"], [1, "rgba(255,200,120,0)"]]),
     redGlow: blob([[0, "rgba(255,230,230,1)"], [0.25, "rgba(255,40,40,0.8)"], [1, "rgba(160,0,0,0)"]]),
@@ -147,6 +150,108 @@ function drawGib(g: G, part: number, hue: number, r: number) {
   if (part > 0 && part < 4) { // torn, bloody end
     g.beginPath(); g.arc(part === 2 ? 0 : -5, part === 2 ? -5 : 0, 2.6, 0, Math.PI * 2); g.fillStyle = "#b01515"; g.fill();
   }
+}
+
+/** Flash shape per gun: cone length and width, number of spikes, glow radius, side jets (muzzle brake). */
+const FLASH: Record<number, { len: number; wid: number; spikes: number; glow: number; side?: boolean }> = {
+  [PISTOL]: { len: 15, wid: 8, spikes: 4, glow: 22 },
+  [RIFLE]: { len: 26, wid: 9, spikes: 4, glow: 30 },
+  [SMG]: { len: 17, wid: 7, spikes: 3, glow: 20 },
+  [SHOTGUN]: { len: 34, wid: 20, spikes: 6, glow: 46 },
+  [SNIPER]: { len: 42, wid: 11, spikes: 2, glow: 54, side: true },
+  [BAZOOKA]: { len: 24, wid: 18, spikes: 0, glow: 40 },
+};
+
+/**
+ * Everything a gun does visually when it fires, from its pivot (gx, gy), aim angle and muzzle distance:
+ * the flash, gun smoke, sparks, a backblast for rockets, and an ejected casing.
+ */
+export function fireFx(gx: number, gy: number, a: number, w: number, mz: number) {
+  if (w === LASER) return;
+  const c = Math.cos(a), s = Math.sin(a);
+  const mx = gx + c * mz, my = gy + s * mz;
+  add(K.MFlash, mx, my, { a, w, life: w === SNIPER || w === SHOTGUN ? 0.085 : 0.06, shade: Math.random() });
+  const puffs = w === SHOTGUN || w === SNIPER ? 5 : w === BAZOOKA ? 3 : 2;
+  for (let i = 0; i < puffs; i++)
+    add(K.Wisp, mx + c * rnd(0, 8), my + s * rnd(0, 8), { vx: c * rnd(20, 90) + rnd(-10, 10), vy: s * rnd(20, 90) - rnd(10, 30), life: rnd(0.5, 1.1), r: rnd(4, 8) * (w === SHOTGUN ? 1.4 : 1) });
+  if (w === SHOTGUN) for (let i = 0; i < 8; i++) {
+    const sa = a + rnd(-0.35, 0.35), sp = rnd(300, 700);
+    add(K.Spark, mx, my, { vx: Math.cos(sa) * sp, vy: Math.sin(sa) * sp, life: rnd(0.08, 0.2) });
+  }
+  if (w === SNIPER) for (const side of [-1, 1]) add(K.Wisp, mx, my, { vx: -s * side * rnd(60, 110), vy: c * side * rnd(60, 110) - 20, life: 0.7, r: 6 });
+  if (w === BAZOOKA) {
+    // Backblast out of the rear of the tube.
+    const bx = gx - c * 22, by = gy - s * 22;
+    for (let i = 0; i < 6; i++) add(K.Fire, bx, by, { vx: -c * rnd(120, 260) + rnd(-30, 30), vy: -s * rnd(120, 260) + rnd(-30, 30), life: rnd(0.12, 0.25), r: rnd(8, 14) });
+    for (let i = 0; i < 6; i++) add(K.Smoke, bx, by, { vx: -c * rnd(40, 140) + rnd(-20, 20), vy: -s * rnd(40, 140) - rnd(10, 30), life: rnd(0.9, 1.6), r: rnd(10, 18), shade: 0.6 });
+    return;
+  }
+  // Ejected casing: up and back out of the ejection port (mirrored when facing left).
+  const up = c >= 0 ? 1 : -1, nx = s * up, ny = -c * up;
+  add(K.Casing, gx + c * 5, gy + s * 5 - 3, {
+    w, a: rnd(0, 6), vr: rnd(-30, 30), life: rnd(2.5, 3.5),
+    vx: nx * rnd(110, 190) - c * rnd(30, 90), vy: ny * rnd(110, 190) - s * rnd(30, 90),
+    age: w === SHOTGUN ? -0.32 : w === SNIPER ? -0.55 : 0, // shotgun and sniper eject when the pump/bolt cycles
+  });
+}
+
+/** A bullet hitting a wall or the ground: sparks and a puff of dust. */
+export function impact(x: number, y: number) {
+  for (let i = 0; i < 5; i++) add(K.Spark, x, y, { vx: rnd(-260, 260), vy: rnd(-320, 60), life: rnd(0.1, 0.25) });
+  add(K.Dust, x, y, { vx: rnd(-20, 20), vy: rnd(-40, -10), life: rnd(0.35, 0.6), r: rnd(3, 6) });
+  add(K.Wisp, x, y, { vy: -20, life: 0.5, r: 5 });
+}
+
+/** A floating damage number. mine: you dealt it. */
+export function damageNumber(x: number, y: number, n: number, mine: boolean, head = false) {
+  add(K.Num, x + rnd(-6, 6), y, { vy: -70, vx: rnd(-15, 15), life: head ? 1.1 : 0.9, txt: String(Math.round(n)) + (head ? "!" : ""), part: mine ? 1 : 0, r: head ? 1.7 : n >= 40 ? 1.5 : 1 });
+}
+
+function drawFlash(g: G, p: Part, f: number) {
+  const o = FLASH[p.w];
+  if (!o) return;
+  const k = 1 - f, jit = 0.75 + 0.5 * p.shade, L = o.len * jit * (0.7 + 0.3 * k), W = o.wid * (0.8 + 0.4 * p.shade);
+  g.save(); g.translate(p.x, p.y); g.rotate(p.a);
+  // Light bloom is additive; the flame itself is painted normally so it stays orange on bright maps.
+  g.globalCompositeOperation = "lighter";
+  stamp(g, sp().glow, 4, 0, o.glow * (0.6 + 0.4 * k), k * 0.45);
+  g.globalCompositeOperation = "source-over";
+  g.globalAlpha = Math.min(1, k * 1.3);
+  const cone = (len: number, wid: number, col0: string, col1: string) => {
+    const gr = g.createLinearGradient(0, 0, len, 0);
+    gr.addColorStop(0, col0); gr.addColorStop(1, col1);
+    g.fillStyle = gr;
+    g.beginPath(); g.moveTo(0, -wid * 0.35); g.quadraticCurveTo(len * 0.45, -wid, len, 0); g.quadraticCurveTo(len * 0.45, wid, 0, wid * 0.35); g.closePath(); g.fill();
+  };
+  cone(L, W, "rgba(255,140,30,0.95)", "rgba(230,60,10,0)");
+  cone(L * 0.8, W * 0.75, "rgba(255,200,60,1)", "rgba(255,120,20,0)");
+  // Jagged spikes around the cone, different every shot.
+  g.fillStyle = "rgba(255,170,50,0.9)";
+  for (let i = 0; i < o.spikes; i++) {
+    const sa = ((i + 0.5) / o.spikes - 0.5) * 1.8 + (p.shade - 0.5) * 0.4, sl = L * (0.3 + 0.35 * ((p.shade * 7 + i * 0.37) % 1));
+    g.beginPath(); g.moveTo(0, -1.2); g.lineTo(Math.cos(sa) * sl, Math.sin(sa) * sl); g.lineTo(0, 1.2); g.closePath(); g.fill();
+  }
+  if (o.side) for (const sd of [-1, 1]) {
+    g.save(); g.rotate(sd * Math.PI / 2); cone(L * 0.45, W * 0.7, "rgba(255,200,110,0.9)", "rgba(255,100,30,0)"); g.restore();
+  }
+  cone(L * 0.5, W * 0.45, "rgba(255,255,235,1)", "rgba(255,235,150,0)");
+  g.restore();
+}
+
+function drawCasing(g: G, p: Part, f: number) {
+  g.globalAlpha = Math.min(1, (p.life - p.age) / 0.6);
+  g.save(); g.translate(p.x, p.y); g.rotate(p.a);
+  if (p.w === SHOTGUN) {
+    g.fillStyle = "#b8231c"; g.fillRect(-2.6, -1.3, 4, 2.6);
+    g.fillStyle = "#d9a441"; g.fillRect(1.4, -1.4, 1.4, 2.8);
+  } else {
+    const len = p.w === SNIPER ? 5.6 : p.w === SMG || p.w === PISTOL ? 2.8 : 3.6, wid = p.w === SNIPER ? 1.8 : 1.3;
+    g.fillStyle = "#d9a441"; g.fillRect(-len / 2, -wid / 2, len, wid);
+    g.fillStyle = "#fff0b0"; g.fillRect(-len / 2, -wid / 2, len, 0.5);
+    g.fillStyle = "#8a6420"; g.fillRect(len / 2 - 0.8, -wid / 2, 0.8, wid);
+  }
+  g.restore();
+  void f;
 }
 
 export function dashPuff(x: number, y: number, dir: number) {
@@ -254,6 +359,20 @@ export function drawOver(g: G, t: number, m?: MapDefinition) {
       case K.Spark: case K.Ember: p.vx *= 1 - 2 * dt; p.vy += (p.k === K.Spark ? 500 : 60) * dt; break;
       case K.Dust: p.vx *= 1 - 4 * dt; p.vy *= 1 - 3 * dt; break;
       case K.Mist: p.vy -= 10 * dt; break;
+      case K.Wisp: p.vx *= 1 - 2 * dt; p.vy = p.vy * (1 - 2 * dt) - 14 * dt; break;
+      case K.Num: p.vy *= 1 - 2.5 * dt; break;
+      case K.Casing:
+        if (p.rest) { p.vx = p.vy = 0; break; }
+        p.vy += 1100 * dt; p.a += p.vr * dt;
+        if (world && p.vy > 0) {
+          const gy = surfaceBelow(world, p.x, p.y - 2);
+          if (p.y + p.vy * dt >= gy - 1) {
+            p.y = gy - 1;
+            if (p.vy > 120) { p.vy *= -0.45; p.vx *= 0.6; p.vr *= -0.6; }
+            else { p.rest = true; p.vx = p.vy = 0; p.a = Math.round(p.a / Math.PI) * Math.PI; }
+          }
+        }
+        break;
       case K.Blood:
         p.vy += 900 * dt;
         if (world && p.vy > 0) {
@@ -296,6 +415,12 @@ export function drawOver(g: G, t: number, m?: MapDefinition) {
     } else if (p.k === K.Blood) {
       g.globalAlpha = Math.min(1, (1 - f) * 3); g.fillStyle = "#a10e0e";
       g.beginPath(); g.ellipse(p.x, p.y, p.r * 1.3, p.r, Math.atan2(p.vy, p.vx), 0, Math.PI * 2); g.fill();
+    } else if (p.k === K.Wisp) {
+      stamp(g, S.wisp, p.x, p.y, p.r * (1 + f * 2.5), (1 - f) * 0.8);
+    } else if (p.k === K.MFlash) {
+      drawFlash(g, p, f);
+    } else if (p.k === K.Casing) {
+      drawCasing(g, p, f);
     } else if (p.k === K.Mist) {
       stamp(g, S.blood, p.x, p.y, p.r * (1 + f * 1.5), (1 - f) * 0.9);
     } else if (p.k === K.Gib) {
@@ -340,6 +465,15 @@ export function drawOver(g: G, t: number, m?: MapDefinition) {
     }
   }
   g.globalCompositeOperation = "source-over";
+  g.textAlign = "center";
+  for (const p of parts) {
+    if (p.k !== K.Num) continue;
+    const f = p.age / p.life, pop = f < 0.15 ? 1 + (0.15 - f) * 4 : 1;
+    g.globalAlpha = Math.min(1, (1 - f) * 2.5);
+    g.font = `900 ${Math.round(13 * p.r * pop)}px sans-serif`;
+    g.lineWidth = 3.5; g.strokeStyle = "rgba(0,0,0,0.85)"; g.strokeText(p.txt, p.x, p.y);
+    g.fillStyle = p.r > 1 ? "#ff5a4a" : p.part ? "#ffe066" : "#ffffff"; g.fillText(p.txt, p.x, p.y);
+  }
   g.globalAlpha = 1;
 }
 

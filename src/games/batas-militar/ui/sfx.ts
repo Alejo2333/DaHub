@@ -1,12 +1,13 @@
 /**
- * Weapon and combat sounds. Each gun has its own synthesised shot (noise crack + low body thump +
+ * Weapon and combat sounds. Recordings in ../sounds: sniper, explosion, the rocket launcher (bazooka)
+ * and splatter (deaths) are used as-is; see ALIASES for files that keep their own names. Each gun has its own synthesised shot (noise crack + low body thump +
  * mechanical clicks, saturated and sent through a short outdoor reverb). Drop a recording into
  * ../sounds named after the sound (sniper.mp3, explosion.mp3, rifle.mp3, shotgun.mp3, smg.mp3,
  * laser.mp3, bazooka.mp3, reload.mp3, pickup.mp3) and it replaces the synthesised version.
  * Sounds follow the hub's volume setting, get quieter with distance and are panned by position.
  */
 import { getVol } from "../../../utils/sound";
-import { BAZOOKA, LASER, RIFLE, SHOTGUN, SMG, SNIPER } from "..";
+import { BAZOOKA, LASER, PISTOL, RIFLE, SHOTGUN, SMG, SNIPER } from "..";
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -89,8 +90,21 @@ function voice(c: AudioContext, at: Place, gain: number, wet = 0.25) {
   return out;
 }
 
+/** Recordings that stand in for a sound, first match wins (so a file can keep its original name). */
+const ALIASES: Record<string, string[]> = {
+  pistol: ["pistol", "powerful-pistol-9-mm"],
+  rifle: ["rifle", "renetti_fire_npc_01"],
+  bazooka: ["bazooka", "gta-san-andreas-rocket-launcher-sound"],
+  gore: ["gore", "splatter"],
+  equip: ["equip", "cs-equip-sound"],
+  headshot: ["headshot", "cs-go-headshot-sound"],
+  helmet: ["helmet", "bhit_helmet-1"],
+};
+
 function file(name: string, at: Place, gain: number, wet = 0.2) {
-  const buf = buffers.get(name), c = ctx;
+  const c = ctx;
+  let buf: AudioBuffer | undefined;
+  for (const n of ALIASES[name] ?? [name]) if ((buf = buffers.get(n))) break;
   if (!buf || !c) return false;
   const src = c.createBufferSource();
   src.buffer = buf;
@@ -135,14 +149,22 @@ function click(c: AudioContext, out: AudioNode, t: number, f = 2400, gain = 0.35
   sweep(c, out, t, { type: "triangle", f: f * 0.5, f2: f * 0.3, dur: 0.03, gain: gain * 0.4 });
 }
 
-const SHOT_NAMES: Record<number, string> = { [RIFLE]: "rifle", [SHOTGUN]: "shotgun", [SMG]: "smg", [SNIPER]: "sniper", [LASER]: "laser", [BAZOOKA]: "bazooka" };
+const SHOT_NAMES: Record<number, string> = { [PISTOL]: "pistol", [RIFLE]: "rifle", [SHOTGUN]: "shotgun", [SMG]: "smg", [SNIPER]: "sniper", [LASER]: "laser", [BAZOOKA]: "bazooka" };
 
 export function shot(w: number, at: Place = HERE) {
   const c = audio();
   if (!c) return;
-  if (file(SHOT_NAMES[w] ?? "", at, w === SNIPER ? 1 : 0.8, w === SNIPER ? 0.35 : 0.2)) return;
+  if (file(SHOT_NAMES[w] ?? "", at, w === SNIPER || w === BAZOOKA ? 1 : 0.8, w === SNIPER ? 0.35 : 0.2)) return;
   const t = c.currentTime;
   switch (w) {
+    case PISTOL: {
+      const o = voice(c, at, 0.5, 0.2);
+      burst(c, o, t, { type: "highpass", f: 1800, dur: 0.06, gain: 1 });
+      burst(c, o, t, { type: "bandpass", f: 1100, q: 1.3, dur: 0.1, gain: 0.6 });
+      sweep(c, o, t, { f: 200, f2: 60, dur: 0.1, gain: 0.8 });
+      click(c, o, t + 0.05, 3000, 0.15); // slide cycling
+      break;
+    }
     case RIFLE: {
       const o = voice(c, at, 0.55, 0.22);
       burst(c, o, t, { type: "highpass", f: 1400, dur: 0.07, gain: 1 });
@@ -223,9 +245,10 @@ export function pickup(at: Place = HERE) {
   sweep(c, o, t + 0.05, { type: "triangle", f: 880, f2: 1320, dur: 0.12, gain: 0.25 });
 }
 
+/** Picking up a gun or switching weapons. */
 export function swap() {
   const c = audio();
-  if (!c) return;
+  if (!c || file("equip", HERE, 0.8, 0.05)) return;
   const t = c.currentTime, o = voice(c, HERE, 0.35, 0.05);
   burst(c, o, t, { type: "bandpass", f: 900, q: 1.5, dur: 0.07, gain: 0.3 });
   click(c, o, t + 0.08, 2200, 0.35);
@@ -243,6 +266,28 @@ export function hitConfirm(head = false) {
   if (!c) return;
   const t = c.currentTime, o = voice(c, HERE, 0.22, 0);
   sweep(c, o, t, { type: "square", f: head ? 2400 : 1700, f2: head ? 2000 : 1400, dur: 0.045, gain: 0.5 });
+}
+
+let lastHeadshot = 0;
+/** You landed a headshot: the headshot ding layered over a helmet impact. */
+export function headshot() {
+  const c = audio();
+  if (!c) return;
+  const now = performance.now();
+  if (now - lastHeadshot < 250) return; // the laser can headshot every tick
+  lastHeadshot = now;
+  const a = file("headshot", HERE, 0.9, 0.05), b = file("helmet", HERE, 0.7, 0.05);
+  if (!a && !b) hitConfirm(true);
+}
+
+/** You took a headshot: the helmet ringing. */
+export function helmetHit() {
+  const c = audio();
+  if (!c) return;
+  const now = performance.now();
+  if (now - lastHeadshot < 250) return;
+  lastHeadshot = now;
+  if (!file("helmet", HERE, 0.8, 0.05)) hurt();
 }
 
 export function hurt() {
@@ -316,11 +361,20 @@ export function stopHums() { for (const [id] of hums) laserHum(id, false); }
 
 export function gore(at: Place = HERE) {
   const c = audio();
-  if (!c) return;
+  if (!c || file("gore", at, 0.9, 0.15)) return;
   const t = c.currentTime, o = voice(c, at, 0.6, 0.15);
   burst(c, o, t, { type: "lowpass", f: 1400, f2: 200, dur: 0.35, gain: 1 });
   sweep(c, o, t, { f: 120, f2: 40, dur: 0.25, gain: 0.8 });
   for (let i = 0; i < 4; i++) burst(c, o, t + 0.25 + Math.random() * 0.5, { type: "bandpass", f: 300 + Math.random() * 300, q: 3, dur: 0.06, gain: 0.25 }); // pieces landing
+}
+
+/** You got a kill: a bright two-note confirmation. */
+export function killConfirm() {
+  const c = audio();
+  if (!c) return;
+  const t = c.currentTime, o = voice(c, HERE, 0.3, 0.1);
+  sweep(c, o, t, { type: "triangle", f: 1320, f2: 1300, dur: 0.12, gain: 0.6 });
+  sweep(c, o, t + 0.09, { type: "triangle", f: 1980, f2: 1960, dur: 0.22, gain: 0.6 });
 }
 
 export function setSfxMuted(m: boolean) { muted = m; if (m) stopHums(); }

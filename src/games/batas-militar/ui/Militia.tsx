@@ -20,7 +20,7 @@ import {
   MAX_HP,
   MAX_NADES,
   NADE,
-  RIFLE,
+  PISTOL,
   TICK_MS,
   mapAt,
   weapon,
@@ -118,6 +118,10 @@ const CSS = `
 .mil-touch button{width:56px;height:56px;border-radius:50%;font-size:12px;font-weight:800;color:#fff;background:#0009;border:2px solid #ffffff44}
 .mil-top{display:flex;justify-content:space-between;align-items:center;width:100%;gap:10px;flex-wrap:wrap}
 .mil-top h1{margin:0;font-size:22px}
+.mil-kill{position:absolute;top:30%;left:50%;transform:translateX(-50%);text-align:center;animation:milKill 1.6s ease-out forwards;pointer-events:none}
+.mil-kill-title{font-size:30px;font-weight:900;letter-spacing:3px;color:#ff4d4d;text-shadow:0 0 12px #ff000088,0 2px 0 #000,0 0 2px #000}
+.mil-kill-name{font-size:16px;font-weight:800;opacity:.9}
+@keyframes milKill{0%{opacity:0;transform:translate(-50%,0) scale(1.6)}12%{opacity:1;transform:translate(-50%,0) scale(1)}75%{opacity:1}100%{opacity:0;transform:translate(-50%,-12px) scale(1)}}
 @keyframes milIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
 @keyframes milPop{from{opacity:0;transform:translate(-50%,0) scale(.9)}to{opacity:1}}
 .mil-card{animation-name:milCard}
@@ -141,6 +145,12 @@ export default function Militia() {
   const playing = state?.ph === 1;
   const mapIdx = state?.m ?? 0;
   const [showBoard, setShowBoard] = useState(false);
+  const [killMsg, setKillMsg] = useState<{ name: string; key: number } | null>(null);
+  useEffect(() => {
+    if (!killMsg) return;
+    const id = setTimeout(() => setKillMsg(null), 1600);
+    return () => clearTimeout(id);
+  }, [killMsg]);
   const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState<{ w: number; text: string; key: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -276,7 +286,9 @@ export default function Militia() {
     const camPos = { x: NaN, y: NaN };
     let lastHp = MAX_HP, hurt = 0;
     let heard: MilState | null = null;
-    let shake = 0;
+    let shake = 0, bloom = 0;
+    const KICK: Record<number, number> = { 0: 2, 1: 5, 2: 1, 3: 8, 4: 0, 5: 6, 6: 1.6 };
+    const BLOOM: Record<number, number> = { 0: 0.35, 1: 0.8, 2: 0.18, 3: 1, 4: 0.03, 5: 0.9, 6: 0.25 };
 
     /** Plays the sounds for whatever happened in a new snapshot (each snapshot is one host tick). */
     const listen = (s: MilState, prev: MilState | null) => {
@@ -293,21 +305,32 @@ export default function Militia() {
         if (q && !q.dead && p.n < q.n) sfx.throwNade(at(p.x, p.y));
         if (p.ds === DASH_TICKS - 1) sfx.dash(at(p.x, p.y));
       }
+      const pm0 = prev?.p[selfId];
+      const gotGun = !!me && !!pm0 && !me.dead && me.sw >= 0 && (me.sw !== pm0.sw || me.sa > pm0.sa);
+      if (gotGun) sfx.swap();
       for (const f of s.fx) {
         if (f.k === 0 && f.t === FX_TTL[0]! - 1) {
           const where = at(f.x, f.y);
           sfx.explosion(where);
           shake = Math.max(shake, 20 * Math.max(0, 1 - where.dist / 900));
         }
-        else if (f.k === 4 && f.t === FX_TTL[4]! - 1) sfx.pickup(at(f.x, f.y));
+        else if (f.k === 4 && f.t === FX_TTL[4]! - 1 && !(gotGun && at(f.x, f.y).dist < 80)) sfx.pickup(at(f.x, f.y));
         else if (f.k === 3 && f.t === FX_TTL[3]! - 1 && goreOn()) sfx.gore(at(f.x, f.y));
       }
       const pm = prev?.p[selfId];
+      if (me && !me.dead && me.fl === 3) { shake = Math.max(shake, KICK[me.w] ?? 1); bloom = Math.min(1.6, bloom + (BLOOM[me.w] ?? 0.2)); }
+      if (me && pm && me.k > pm.k) {
+        const f = [...s.feed].reverse().find((e) => e.k === selfId && e.v !== selfId);
+        sfx.killConfirm();
+        setKillMsg({ name: f ? names.current[f.v] ?? nameOf(f.v) : "", key: performance.now() });
+      }
       if (!me || !pm || me.dead) return;
-      if (me.ht === 6) sfx.hitConfirm();
-      if (!pm.dead && me.hp < pm.hp) sfx.hurt();
+      if (me.hs === 6) sfx.headshot();
+      else if (me.ht === 6) sfx.hitConfirm();
+      if (me.hh === 6) sfx.helmetHit();
+      else if (!pm.dead && me.hp < pm.hp) sfx.hurt();
       if (me.rl > pm.rl) sfx.reload();
-      if (me.sl !== pm.sl && me.sw === pm.sw && me.sw >= 0) sfx.swap();
+      if (me.sl !== pm.sl && me.sw === pm.sw && me.sw >= 0 && !gotGun) sfx.swap();
     };
 
     const frame = () => {
@@ -418,6 +441,7 @@ export default function Militia() {
       const sx = shake ? (Math.random() * 2 - 1) * shake / zoom : 0, sy = shake ? (Math.random() * 2 - 1) * shake / zoom : 0;
       shake = shake > 0.3 ? shake * Math.exp(-frameMs / 110) : 0;
       const view = { cx: cx + sx, cy: cy + sy, z: zoom, w, h, dpr };
+      bloom = bloom > 0.01 ? bloom * Math.exp(-frameMs / 140) : 0;
       const t = now / 1000;
       env.drawBack(g, view, t);
       worldTransform(g, view);
@@ -449,6 +473,7 @@ export default function Militia() {
           g.moveTo(mx - r1, my); g.lineTo(mx - r0, my); g.moveTo(mx + r0, my); g.lineTo(mx + r1, my);
           g.moveTo(mx, my - r1); g.lineTo(mx, my - r0); g.moveTo(mx, my + r0); g.lineTo(mx, my + r1);
         };
+        g.save(); g.translate(mx, my); g.scale(1 + bloom, 1 + bloom); g.translate(-mx, -my);
         g.beginPath();
         if (wi === 3) { g.arc(mx, my, 18, 0, Math.PI * 2); cross(4, 26); }
         else if (wi === 1) { g.arc(mx, my, 16, 0, Math.PI * 2); g.moveTo(mx + 1.5, my); g.arc(mx, my, 1.5, 0, Math.PI * 2); }
@@ -456,6 +481,7 @@ export default function Militia() {
         else if (wi === 5) {
           for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) { g.moveTo(mx + sx * 14, my + sy * 7); g.lineTo(mx + sx * 14, my + sy * 14); g.lineTo(mx + sx * 7, my + sy * 14); }
         } else { g.arc(mx, my, 8, 0, Math.PI * 2); cross(4, 13); }
+        g.restore();
         g.strokeStyle = "#000a"; g.lineWidth = 3.5; g.stroke();
         g.strokeStyle = wi === 4 ? "#8ff3ff" : "#fff"; g.lineWidth = 1.6; g.stroke();
         if (me.ht > 0) { // hit marker
@@ -464,8 +490,8 @@ export default function Militia() {
           g.strokeStyle = "#000a"; g.lineWidth = 4; g.stroke();
           g.strokeStyle = "#ff4d4d"; g.lineWidth = 2.2; g.stroke();
         }
-        if (me.rl > 0 && wi === RIFLE) { // reload ring
-          g.beginPath(); g.arc(mx, my, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - me.rl / weapon(RIFLE).reload));
+        if (me.rl > 0 && wi === PISTOL) { // reload ring
+          g.beginPath(); g.arc(mx, my, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - me.rl / weapon(PISTOL).reload));
           g.strokeStyle = "#ffd25a"; g.lineWidth = 3; g.stroke();
         }
       }
@@ -617,11 +643,11 @@ export default function Militia() {
               <div className="mil-bc">
                 <div className={`mil-slot mil-panel${me.sl === 0 ? " on" : ""}`}>
                   <span className="mil-key">1</span>
-                  <GunIcon w={RIFLE} />
+                  <GunIcon w={PISTOL} />
                   <div>
-                    <div className={`mil-ammo${me.mag <= 5 ? " low" : ""}`}>{me.rl ? "…" : me.mag}<small>/{weapon(RIFLE).ammo}</small></div>
-                    <div className="mil-wname">{me.rl ? "Reloading" : "Rifle"}</div>
-                    {me.rl > 0 && <div className="mil-reload" style={{ width: `${100 * (1 - me.rl / weapon(RIFLE).reload)}%` }} />}
+                    <div className={`mil-ammo${me.mag <= 3 ? " low" : ""}`}>{me.rl ? "…" : me.mag}<small>/{weapon(PISTOL).ammo}</small></div>
+                    <div className="mil-wname">{me.rl ? "Reloading" : weapon(PISTOL).name}</div>
+                    {me.rl > 0 && <div className="mil-reload" style={{ width: `${100 * (1 - me.rl / weapon(PISTOL).reload)}%` }} />}
                   </div>
                 </div>
                 <div className={`mil-slot mil-panel${me.sl === 1 && me.sw >= 0 ? " on" : ""}`}>
@@ -640,6 +666,13 @@ export default function Militia() {
                 </div>
               </div>
             </>
+          )}
+
+          {killMsg && playing && (
+            <div key={killMsg.key} className="mil-kill">
+              <div className="mil-kill-title">☠ ELIMINATED</div>
+              {killMsg.name && <div className="mil-kill-name">{killMsg.name}</div>}
+            </div>
           )}
 
           {toast && playing && (

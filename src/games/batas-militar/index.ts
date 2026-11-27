@@ -33,7 +33,7 @@ export type WeaponKind = "bullet" | "beam" | "rocket";
 export interface WeaponDef {
   name: string;
   kind: WeaponKind;
-  /** Rifle: magazine size. Pickups: total ammo, no reloads. */
+  /** Pistol: magazine size. Pickups: total ammo, no reloads. */
   ammo: number;
   cooldown: number;
   reload: number;
@@ -48,16 +48,18 @@ export interface WeaponDef {
   head: number;
   blurb: string;
 }
-export const RIFLE = 0, SHOTGUN = 1, SMG = 2, SNIPER = 3, LASER = 4, BAZOOKA = 5;
+/** Everyone starts with the pistol (index 0); the rest are pickups. */
+export const PISTOL = 0, SHOTGUN = 1, SMG = 2, SNIPER = 3, LASER = 4, BAZOOKA = 5, RIFLE = 6;
 /** Kill-feed id for grenades. */
 export const NADE = 100;
 export const WEAPONS: readonly WeaponDef[] = [
-  { name: "Rifle", kind: "bullet", ammo: 30, cooldown: 4, reload: 45, dmg: 11, pellets: 1, spread: 0.035, speed: 42, life: 24, recoil: 0.3, head: 1.5, blurb: "Reliable all-rounder. Infinite magazines." },
+  { name: "Pistol", kind: "bullet", ammo: 12, cooldown: 7, reload: 36, dmg: 15, pellets: 1, spread: 0.02, speed: 40, life: 22, recoil: 0.6, head: 1.75, blurb: "Your sidearm. Accurate, infinite magazines." },
   { name: "Shotgun", kind: "bullet", ammo: 16, cooldown: 20, reload: 0, dmg: 9, pellets: 7, spread: 0.15, speed: 36, life: 12, recoil: 2.5, head: 1.25, blurb: "Seven pellets. Devastating up close." },
   { name: "SMG", kind: "bullet", ammo: 90, cooldown: 2, reload: 0, dmg: 6, pellets: 1, spread: 0.1, speed: 40, life: 16, recoil: 0.15, head: 1.5, blurb: "Bullet hose. Shreds at short range." },
   { name: "Sniper", kind: "bullet", ammo: 6, cooldown: 42, reload: 0, dmg: 72, pellets: 1, spread: 0.002, speed: 95, life: 32, recoil: 4, head: 2, blurb: "One shot, one kill if you hit the head." },
   { name: "Laser", kind: "beam", ammo: 150, cooldown: 1, reload: 0, dmg: 2.4, pellets: 1, spread: 0, speed: 0, life: 1100, recoil: 0, head: 1.5, blurb: "Continuous energy beam. Hold fire and sweep it across them." },
   { name: "Bazooka", kind: "rocket", ammo: 4, cooldown: 40, reload: 0, dmg: 95, pellets: 1, spread: 0, speed: 15, life: 90, recoil: 5, head: 1, blurb: "Rockets with splash damage. Try a rocket jump." },
+  { name: "Rifle", kind: "bullet", ammo: 90, cooldown: 4, reload: 0, dmg: 11, pellets: 1, spread: 0.035, speed: 42, life: 24, recoil: 0.3, head: 1.5, blurb: "Full-auto assault rifle. Reliable all-rounder." },
 ];
 export const weapon = (i: number): WeaponDef => WEAPONS[i] ?? WEAPONS[0]!;
 export const weaponName = (i: number) => (i === NADE ? "Grenade" : weapon(i).name);
@@ -67,7 +69,7 @@ export const DROP_EVERY = 30 * 5;
 export const DROP_TTL = 30 * 30;
 export const dropCap = (players: number) => Math.min(8, 2 + players);
 /** Weapons that can drop (everything except the rifle you always carry). */
-export const DROPPABLE = [SHOTGUN, SMG, SNIPER, LASER, BAZOOKA] as const;
+export const DROPPABLE = [RIFLE, SHOTGUN, SMG, SNIPER, LASER, BAZOOKA] as const;
 
 /** A random standing spot on a platform or the ground, clear of solids, or null if the try failed. */
 export function randomSpot(m: MapDefinition, rand = Math.random): { x: number; y: number } | null {
@@ -95,8 +97,10 @@ export interface PSnap extends Body {
   mag: number; sl: number; sw: number; sa: number; ht: number; fl: number;
   /** ds: dash ticks left, dc: dash cooldown ticks left. */
   ds: number; dc: number;
+  /** hs: ticks since you landed a headshot, hh: ticks since you took one. */
+  hs: number; hh: number;
 }
-const P_NUM_KEYS = ["x", "y", "vx", "vy", "a", "hp", "fuel", "w", "ammo", "rl", "n", "dead", "k", "d", "mag", "sl", "sw", "sa", "ht", "fl", "ds", "dc"] as const;
+const P_NUM_KEYS = ["x", "y", "vx", "vy", "a", "hp", "fuel", "w", "ammo", "rl", "n", "dead", "k", "d", "mag", "sl", "sw", "sa", "ht", "fl", "ds", "dc", "hs", "hh"] as const;
 /** k: 0 blast, 1 spark, 2 blood, 3 death puff, 4 pickup sparkle, 5 rocket smoke, 6 dash puff. t: ticks left. */
 export interface Fx { x: number; y: number; k: number; t: number }
 export const FX_TTL = [18, 6, 8, 20, 16, 14, 12];
@@ -147,10 +151,10 @@ export type MilAction =
 interface P extends Body {
   a: number; hp: number; fuel: number; mag: number; sl: number; sw: number; sa: number; rl: number; n: number;
   dead: number; k: number; d: number; j: boolean; ht: number; fl: number;
-  ds: number; dc: number; ddx: number; ddy: number;
+  ds: number; dc: number; ddx: number; ddy: number; hs: number; hh: number;
   in: Input; cd: number; nadeCd: number; calm: number; on: MaterialId | null;
 }
-const held = (p: P) => (p.sl === 1 && p.sw >= 0 ? p.sw : RIFLE);
+const held = (p: P) => (p.sl === 1 && p.sw >= 0 ? p.sw : PISTOL);
 interface Bullet extends Body { o: string; dmg: number; life: number; w: number }
 interface Rocket extends Body { o: string; life: number }
 interface Nade extends Body { o: string; fuse: number }
@@ -192,7 +196,7 @@ function createSim(hostId: string, roster: () => string[]) {
     }
     Object.assign(p, {
       x: bx, y: by - PH - 1, vx: 0, vy: 0, hp: MAX_HP, fuel: MAX_FUEL,
-      mag: weapon(RIFLE).ammo, sl: 0, sw: -1, sa: 0, rl: 0, n: MAX_NADES, dead: 0, j: false, cd: 0, nadeCd: 0, calm: 0, on: null, ht: 0, fl: 0, ds: 0, dc: 0,
+      mag: weapon(PISTOL).ammo, sl: 0, sw: -1, sa: 0, rl: 0, n: MAX_NADES, dead: 0, j: false, cd: 0, nadeCd: 0, calm: 0, on: null, ht: 0, fl: 0, ds: 0, dc: 0, hs: 0, hh: 0,
     });
   }
 
@@ -200,7 +204,7 @@ function createSim(hostId: string, roster: () => string[]) {
     const p: P = {
       x: 0, y: 0, vx: 0, vy: 0, a: 0, hp: MAX_HP, fuel: MAX_FUEL, mag: 0, sl: 0, sw: -1, sa: 0, rl: 0, n: 0,
       dead: 0, k: 0, d: 0, j: false, in: { l: false, r: false, j: false, f: false, a: 0 },
-      cd: 0, nadeCd: 0, calm: 0, on: null, ht: 0, fl: 0, ds: 0, dc: 0, ddx: 0, ddy: 0,
+      cd: 0, nadeCd: 0, calm: 0, on: null, ht: 0, fl: 0, ds: 0, dc: 0, ddx: 0, ddy: 0, hs: 0, hh: 0,
     };
     spawn(id, p);
     players[id] = p;
@@ -240,12 +244,13 @@ function createSim(hostId: string, roster: () => string[]) {
     addFx(spot.x, spot.y - 16, 4);
   }
 
-  function damage(id: string, amount: number, from: string, w: number, kx: number, ky: number) {
+  function damage(id: string, amount: number, from: string, w: number, kx: number, ky: number, head = false) {
     const q = players[id];
     if (!q || q.dead || winner) return;
     q.hp -= amount; q.calm = 0; q.vx += kx; q.vy += ky;
     const shooter = players[from];
-    if (shooter && from !== id) shooter.ht = 6;
+    if (shooter && from !== id) { shooter.ht = 6; if (head) shooter.hs = 6; }
+    if (head) q.hh = 6;
     if (q.hp > 0) return;
     q.hp = 0; q.dead = RESPAWN_TICKS; q.j = false; q.d++;
     if (q.sw >= 0 && q.sa > 0) {
@@ -278,7 +283,7 @@ function createSim(hostId: string, roster: () => string[]) {
 
   function fire(id: string, p: P) {
     const wi = held(p), wp = weapon(wi);
-    if (wi === RIFLE) p.mag--; else p.sa--;
+    if (wi === PISTOL) p.mag--; else p.sa--;
     p.cd = wp.cooldown; p.fl = 3;
     const c = Math.cos(p.a), s = Math.sin(p.a), gy = p.y + GUN_Y;
     if (wp.kind === "beam") {
@@ -292,7 +297,7 @@ function createSim(hostId: string, roster: () => string[]) {
       const hx = p.x + c * L * t, hy = gy + s * L * t;
       beams.push({ x: p.x + c * 24, y: gy + s * 24, x2: hx, y2: hy, t: 2 });
       if (t < 1) addFx(hx, hy, hit ? 2 : 1);
-      if (hit) { const q = players[hit]!; damage(hit, wp.dmg * (hy < q.y - PH + 14 ? wp.head : 1), id, wi, c * 0.6, s * 0.6); }
+      if (hit) { const q = players[hit]!, head = hy < q.y - PH + 14; damage(hit, wp.dmg * (head ? wp.head : 1), id, wi, c * 0.6, s * 0.6, head); }
     } else if (wp.kind === "rocket") {
       rockets.push({ x: p.x + c * 14, y: gy + s * 14, vx: c * wp.speed, vy: s * wp.speed, o: id, life: wp.life });
     } else {
@@ -303,7 +308,7 @@ function createSim(hostId: string, roster: () => string[]) {
     }
     p.vx -= c * wp.recoil;
     p.vy -= s * wp.recoil * 0.4;
-    if (wi !== RIFLE && p.sa <= 0) { p.sw = -1; p.sa = 0; p.sl = 0; p.cd = 10; } // out of ammo: back to the rifle
+    if (wi !== PISTOL && p.sa <= 0) { p.sw = -1; p.sa = 0; p.sl = 0; p.cd = 10; } // out of ammo: back to the pistol
   }
 
   /** Returns true if the change should be published right away. */
@@ -341,7 +346,7 @@ function createSim(hostId: string, roster: () => string[]) {
       p.ddx = dx / len; p.ddy = dy / len; p.ds = DASH_TICKS; p.dc = DASH_COOLDOWN;
       addFx(p.x, p.y + PH - 4, 6);
     }
-    else if (a.t === "RELOAD") { if (!p.rl && p.mag < weapon(RIFLE).ammo) { p.rl = weapon(RIFLE).reload; p.sl = 0; } }
+    else if (a.t === "RELOAD") { if (!p.rl && p.mag < weapon(PISTOL).ammo) { p.rl = weapon(PISTOL).reload; p.sl = 0; } }
     else if (a.t === "NADE" && p.n > 0 && !p.nadeCd) {
       const c = Math.cos(p.a), s = Math.sin(p.a);
       nades.push({ x: p.x + c * 10, y: p.y + GUN_Y + s * 10, vx: c * 13 + p.vx * 0.5, vy: s * 13 + p.vy * 0.5 - 2, o: from, fuse: 50 });
@@ -359,9 +364,9 @@ function createSim(hostId: string, roster: () => string[]) {
         if (p.hp >= MAX_HP) return;
         p.hp = Math.min(MAX_HP, p.hp + 50);
       } else {
-        const full = p.n >= MAX_NADES && p.mag >= weapon(RIFLE).ammo && (p.sw < 0 || p.sa >= weapon(p.sw).ammo);
+        const full = p.n >= MAX_NADES && p.mag >= weapon(PISTOL).ammo && (p.sw < 0 || p.sa >= weapon(p.sw).ammo);
         if (full) return;
-        p.mag = weapon(RIFLE).ammo; p.rl = 0; p.n = MAX_NADES;
+        p.mag = weapon(PISTOL).ammo; p.rl = 0; p.n = MAX_NADES;
         if (p.sw >= 0) p.sa = weapon(p.sw).ammo;
       }
       pk[i] = PICKUP_TICKS;
@@ -407,13 +412,15 @@ function createSim(hostId: string, roster: () => string[]) {
       if (p.cd > 0) p.cd--;
       if (p.nadeCd > 0) p.nadeCd--;
       if (p.ht > 0) p.ht--;
+      if (p.hs > 0) p.hs--;
+      if (p.hh > 0) p.hh--;
       if (p.fl > 0) p.fl--;
-      if (p.rl > 0) { if (--p.rl === 0) p.mag = weapon(RIFLE).ammo; }
+      if (p.rl > 0) { if (--p.rl === 0) p.mag = weapon(PISTOL).ammo; }
       if (i.f && !p.cd) {
         if (p.sl === 1 && p.sw >= 0) fire(id, p);
         else if (!p.rl) {
           if (p.mag > 0) fire(id, p);
-          else p.rl = weapon(RIFLE).reload; // auto-reload on empty
+          else p.rl = weapon(PISTOL).reload; // auto-reload on empty
         }
       }
       if (++p.calm > 90) p.hp = Math.min(MAX_HP, p.hp + 0.4); // regen after 3s without damage
@@ -441,7 +448,7 @@ function createSim(hostId: string, roster: () => string[]) {
           const q = players[hit];
           const head = q ? hy < q.y - PH + 14 : false;
           const kick = b.w === SNIPER ? 0.08 : 0.03;
-          damage(hit, b.dmg * (head ? weapon(b.w).head : 1), b.o, b.w, b.vx * kick, b.vy * kick);
+          damage(hit, b.dmg * (head ? weapon(b.w).head : 1), b.o, b.w, b.vx * kick, b.vy * kick, head);
         }
         return false;
       }
@@ -491,8 +498,8 @@ function createSim(hostId: string, roster: () => string[]) {
     for (const [id, q] of Object.entries(players))
       p[id] = {
         x: r1(q.x), y: r1(q.y), vx: r1(q.vx), vy: r1(q.vy), a: Math.round(q.a * 100) / 100,
-        hp: Math.ceil(q.hp), fuel: Math.round(q.fuel), w: held(q), ammo: held(q) === RIFLE ? q.mag : q.sa, rl: q.rl,
-        n: q.n, dead: q.dead, k: q.k, d: q.d, j: q.j, mag: q.mag, sl: q.sl, sw: q.sw, sa: q.sa, ht: q.ht, fl: q.fl, ds: q.ds, dc: q.dc,
+        hp: Math.ceil(q.hp), fuel: Math.round(q.fuel), w: held(q), ammo: held(q) === PISTOL ? q.mag : q.sa, rl: q.rl,
+        n: q.n, dead: q.dead, k: q.k, d: q.d, j: q.j, mag: q.mag, sl: q.sl, sw: q.sw, sa: q.sa, ht: q.ht, fl: q.fl, ds: q.ds, dc: q.dc, hs: q.hs, hh: q.hh,
       };
     const body = (b: Body) => ({ x: r1(b.x), y: r1(b.y), vx: r1(b.vx), vy: r1(b.vy) });
     return {
@@ -580,12 +587,12 @@ const game: GameModule = {
   maxPlayers: 6,
   category: "Action",
   tags: ["Multiplayer"],
-  description: "A 2D jetpack deathmatch across six illustrated arenas: forest, caverns, desert, highlands, factory and jungle ruins. Vote on the map, burn fuel to fly, grab shotguns, SMGs, sniper rifles, laser guns and bazookas, and lob grenades around cover.",
+  description: "A 2D jetpack deathmatch across six illustrated arenas: forest, caverns, desert, highlands, factory and jungle ruins. Vote on the map, burn fuel to fly, start with a pistol, grab rifles, shotguns, SMGs, sniper rifles, laser guns and bazookas, and lob grenades around cover.",
   howTo: [
     "Everyone votes on the arena first. The host can also pick it directly.",
     `First to ${KILLS_TO_WIN} kills wins, or the top score when the 5-minute clock runs out.`,
     "Your jetpack refuels fastest while you're standing on something. Ice is slippery.",
-    "Weapons drop in at random spots: Shotgun, SMG, Sniper, Laser and Bazooka. Walk over one to grab it. Kill someone to make them drop theirs.",
+    "Weapons drop in at random spots: Rifle, Shotgun, SMG, Sniper, Laser and Bazooka. Walk over one to grab it. Kill someone to make them drop theirs.",
     "Grab medkits for health and ammo crates for a full reload and grenades.",
     "Headshots do 50% more damage. Health regenerates after 3 seconds out of combat.",
   ],

@@ -3,7 +3,7 @@ import { BAZOOKA, DASH_TICKS, RESPAWN_TICKS, DROP_TTL, FX_TTL, GUN_Y, LASER, MAX
 import { spawnY, surfaceBelow, type MapDefinition } from "../maps";
 import { INK, type G } from "./art";
 import { MUZZLE, drawGun } from "./guns";
-import { bloodHit, clearFx, dashPuff, drawOver, drawUnder, explode, gib, goreOn, laserBeam, sniperSight, sniperTrail } from "./fx";
+import { bloodHit, clearFx, damageNumber, dashPuff, drawOver, drawUnder, explode, fireFx, gib, goreOn, impact, laserBeam, sniperSight, sniperTrail } from "./fx";
 
 let seen: MilState | null = null;
 let seenMap = "";
@@ -35,19 +35,18 @@ function soldier(g: G, x: number, y: number, a: number, h: number, jet: boolean,
   g.beginPath(); g.arc(x, y - 12, 8, 0, TAU); g.fillStyle = "#e9b98f"; g.fill(); g.stroke(); // head
   g.beginPath(); g.arc(x, y - 13, 8.8, Math.PI, 0); g.closePath(); g.fillStyle = `hsl(${h} 45% 30%)`; g.fill(); g.stroke(); // helmet
   g.fillStyle = "#111"; g.fillRect(x + f * 3 - 1.5, y - 12, 3, 3); // eye
+  // Recoil: the gun snaps back and up when it fires, then settles.
+  const kick = (flash / 3) ** 2 * (RECOIL[w] ?? 2);
   g.save();
   g.translate(x, y + GUN_Y + (w === BAZOOKA ? -5 : 0)); g.rotate(a);
   if (f < 0) g.scale(1, -1);
+  g.translate(-kick, 0); g.rotate(-kick * 0.03);
   g.save(); g.scale(HAND, HAND); drawGun(g, w, t); g.restore();
-  if (flash > 0) {
-    const mx = (MUZZLE[w as 0] ?? 30) * HAND, r = w === BAZOOKA ? 12 : w === SNIPER ? 11 : 7;
-    g.beginPath();
-    for (let i = 0; i < 10; i++) { const a2 = (i / 10) * TAU, rr = i % 2 ? r * 0.45 : r; g.lineTo(mx + 4 + Math.cos(a2) * rr * 1.3, Math.sin(a2) * rr * 0.8); }
-    g.closePath(); g.fillStyle = w === 4 ? "#9ff6ff" : "#ffd25a"; g.fill();
-    g.beginPath(); g.arc(mx + 3, 0, r * 0.35, 0, TAU); g.fillStyle = "#fffbe8"; g.fill();
-  }
   g.restore();
 }
+
+/** How far each gun kicks back (px) right after a shot. */
+const RECOIL: Record<number, number> = { 0: 3, 1: 5, 2: 1.5, 3: 7, 4: 0.4, 5: 6, 6: 2.5 };
 
 function pickup(g: G, x: number, y: number, kind: number, t: number) {
   const by = y + Math.sin(t * 3 + x) * 3;
@@ -88,6 +87,21 @@ export function drawEntities(
       }
     }
     for (const p of Object.values(s.p)) if (!p.dead && p.ds === DASH_TICKS - 1) dashPuff(p.x, p.y + PH - 2, Math.sign(p.vx) || 1);
+    for (const f of s.fx) if (f.k === 1 && f.t === FX_TTL[1]! - 1) impact(f.x, f.y);
+    // Muzzle flashes, smoke and casings for everyone who fired this tick.
+    for (const [id, p] of Object.entries(s.p)) {
+      if (p.dead || p.fl !== 3) continue;
+      const a = id === selfId ? myAim : p.a;
+      fireFx(p.x, p.y + GUN_Y + (p.w === BAZOOKA ? -5 : 0), a, p.w, (MUZZLE[p.w as 0] ?? 30) * HAND);
+    }
+    // Damage numbers from health drops (yellow if you dealt them).
+    const mine = (s.p[selfId]?.ht ?? 0) === 6;
+    if (seen?.ph === 1) for (const [id, p] of Object.entries(s.p)) {
+      const q = seen.p[id];
+      if (!q || q.dead) continue;
+      const lost = q.hp - p.hp;
+      if (lost >= 1) damageNumber(q.x, q.y - PH - 18, lost, mine && id !== selfId, p.hh === 6);
+    }
     seen = s;
   }
 

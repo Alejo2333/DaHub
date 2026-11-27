@@ -3,7 +3,7 @@
  * Local space: the hand grip is at (0, 0) and the barrel points along +x. Units are world pixels.
  * Realistic proportions and materials (blued steel, polymer, wood, olive drab), thin dark linework.
  */
-import { BAZOOKA, LASER, NADE, RIFLE, SHOTGUN, SMG, SNIPER } from "..";
+import { BAZOOKA, LASER, NADE, PISTOL, RIFLE, SHOTGUN, SMG, SNIPER } from "..";
 import type { G } from "./art";
 
 type Pt = readonly [number, number];
@@ -66,10 +66,10 @@ function triggerGuard(g: G, x: number, y: number) {
 }
 
 /** Muzzle distance from the grip, so flashes and beams start at the barrel tip. */
-export const MUZZLE = [35, 38, 23, 52, 31, 33] as const;
+export const MUZZLE = [18, 38, 23, 52, 31, 33, 35] as const;
 /** Bounding box of each gun, for fitting icons: [x0, y0, x1, y1]. */
 export const GUN_BOX: Record<number, readonly [number, number, number, number]> = {
-  [RIFLE]: [-19, -10, 36, 14], [SHOTGUN]: [-20, -6, 39, 9], [SMG]: [-15, -8, 24, 15],
+  [PISTOL]: [-4, -7, 19, 11], [RIFLE]: [-19, -10, 36, 14], [SHOTGUN]: [-20, -6, 39, 9], [SMG]: [-15, -8, 24, 15],
   [SNIPER]: [-21, -15, 53, 9], [LASER]: [-10, -10, 33, 10], [BAZOOKA]: [-26, -14, 35, 13], [NADE]: [-6, -11, 7, 8],
 };
 
@@ -105,6 +105,21 @@ function rifle(g: G) {
   // Rear sight.
   box(g, 0.6, -9.4, 3.6, 2.2, "#1b1d21", 0.4);
   glint(g, -3.8, 14.2, -5.1); glint(g, 15.6, 25.4, -4.9, 0.25); glint(g, 26.4, 32.4, -2.7, 0.4);
+}
+
+function pistol(g: G) {
+  // Polymer frame and grip, steel slide with serrations, short barrel.
+  grip(g, -1.6, 1.4, 9);
+  triggerGuard(g, 2.4, 1.4);
+  box(g, -2.6, -1.4, 16, 3.4, POLY(g, -1.4, 2), 0.8); // frame + dust cover
+  box(g, 11.6, -0.4, 2, 1.6, "#1d1f23", 0.3); // accessory rail nub
+  box(g, -3.4, -5.6, 18.4, 4.6, STEEL(g, -5.6, -1), 1); // slide
+  for (let x = -2.2; x < 2.4; x += 1.1) line(g, [[x, -5.2], [x, -1.4]], "rgba(0,0,0,0.55)", 0.5); // rear serrations
+  box(g, 5.6, -4.8, 3.6, 1.6, "#0a0b0d", 0.3, false); // ejection port
+  box(g, 15, -4.2, 3.2, 2.4, BLUED(g, -4.2, -1.8), 0.4); // barrel crown
+  box(g, -2.8, -7, 1.8, 1.4, "#16181b", 0.2); box(g, 12.6, -7, 1.2, 1.4, "#16181b", 0.2); // sights
+  box(g, -4.6, -4, 1.4, 2, "#2a2e33", 0.3); // hammer
+  glint(g, -3, 14.6, -5.1, 0.6);
 }
 
 function shotgun(g: G) {
@@ -259,6 +274,7 @@ export function drawGun(g: G, w: number, t = 0) {
   g.save();
   g.lineJoin = "round"; g.lineCap = "round"; g.lineWidth = 0.8; g.strokeStyle = LINE;
   switch (w) {
+    case PISTOL: pistol(g); break;
     case RIFLE: rifle(g); break;
     case SHOTGUN: shotgun(g); break;
     case SMG: smg(g); break;
@@ -277,7 +293,7 @@ export function drawGunIcon(c: HTMLCanvasElement, w: number, dim = false) {
   c.width = Math.round(cw * dpr); c.height = Math.round(ch * dpr);
   const g = c.getContext("2d");
   if (!g) return;
-  const [x0, y0, x1, y1] = GUN_BOX[w] ?? GUN_BOX[RIFLE]!;
+  const [x0, y0, x1, y1] = GUN_BOX[w] ?? GUN_BOX[PISTOL]!;
   const k = Math.min((cw - 4) / (x1 - x0), (ch - 4) / (y1 - y0));
   g.setTransform(dpr * k, 0, 0, dpr * k, dpr * (cw / 2 - ((x0 + x1) / 2) * k), dpr * (ch / 2 - ((y0 + y1) / 2) * k));
   if (dim) g.globalAlpha = 0.35;
