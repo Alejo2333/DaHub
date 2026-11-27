@@ -33,7 +33,7 @@ import type { V } from "./ik";
 import { solve, type Joints, type Pose } from "./skeleton";
 
 /** Crossfade time in seconds when entering each move. Quick moves blend quickly so they feel responsive. */
-const BLEND: Record<Move, number> = {
+export const BLEND: Record<Move, number> = {
   idle: 0.15,
   run: 0.14,
   jump: 0.07,

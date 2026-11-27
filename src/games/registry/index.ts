@@ -5,6 +5,7 @@ import ghostLine from "../ghost-line";
 import crossyrace from "../crossy-race";
 import floorIsLava from "../floor-is-lava";
 import skyScrapBrawl from "../sky-scrap-brawl";
+import batasMilitar from "../batas-militar";
 
 /** Add each game here. The home page, search, game pages and parties all use this list. See "Adding a game" in the README. */
 export const games: GameModule[] = [
@@ -14,6 +15,7 @@ export const games: GameModule[] = [
   crossyrace,
   floorIsLava,
   skyScrapBrawl,
+  batasMilitar,
 ];
 export const getGame = (id: string) => games.find((g) => g.id === id);
 /** Placeholder tiles so the library doesn't look empty. Delete an entry when a real game takes its place. */
