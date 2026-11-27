@@ -179,7 +179,7 @@ export function createMatch(humans: string[], mid: number): Match {
     if (skT <= 0) { skT = 6 + Math.random() * 4; if (skills.length < 2) { const q = plats[Math.random() * plats.length | 0]; const s = { i: ++uid, x: q.x + 25 + Math.random() * (q.w - 50), y: q.y, k: SK[Math.random() * SK.length | 0], l: 14, ph: Math.random() * 6, a: 0 }; skills.push(s); emit('o', R(s.x), R(s.y), SKI[s.k][1]) } }
     for (const s of skills) {
       s.l -= dt; s.a += dt;
-      for (const p of players) if (p.lives > 0 && !p.clone && !s.got && Math.abs(p.x - s.x) < 42 && Math.abs((p.y - 24) - (s.y - 52)) < 62) {
+      for (const p of players) if (p.lives > 0 && !p.clone && !s.got && Math.abs(p.x - s.x) < 34 && Math.abs((p.y - 24) - (s.y - 42)) < 52) {
         s.got = 1; burst(s.x, s.y - 30, SKI[s.k][1], 16); ring(s.x, s.y, 80, .5, SKI[s.k][1]);
         if (s.k == 'jet') p.fx.jet = 100; else if (s.k == 'spd') p.fx.spd = 8; else if (s.k == 'ghost') p.fx.ghost = 15; else if (s.k == 'shield') p.fx.shield = SHIELD; else mkClone(p);
       }

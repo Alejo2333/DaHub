@@ -3,6 +3,7 @@
  * Runs on every client, the host included. It draws the snapshots the host publishes, smoothing
  * fighters between them, and builds all particles locally from the snapshot's events.
  */
+import { bloodSound, explosionSound, gunSound } from './sound';
 import { BLAST, GUNS, H, INK, MAPS, MZ, NADE, ROSTER, SHIELD, SKI, W } from './shared';
 import type { MatchSnap } from './shared';
 
@@ -49,13 +50,13 @@ export function createRenderer(cv: HTMLCanvasElement): Renderer {
     if (ty === 'b') burst(n(0), n(1), str(2), Math.min(40, n(3)));
     else if (ty === 'r') rings.push({ x: n(0), y: n(1), mr: Math.min(300, n(2)), l: Math.min(2, n(3)), l0: Math.min(2, n(3)) || 1, col: str(4) });
     else if (ty === 's') shatter(n(0), n(1), Math.min(40, n(2)), n(3));
-    else if (ty === 'x') boom(n(0), n(1));
+    else if (ty === 'x') { boom(n(0), n(1)); explosionSound(n(0)) }
     else if (ty === 'k') shake = Math.max(shake, Math.min(20, n(0)));
     else if (ty === 'l') landFx(n(0), n(1));
     else if (ty === 'o') spawnFx(n(0), n(1), str(2));
-    else if (ty === 'f') { const x = n(0), y = n(1), f = n(2) < 0 ? -1 : 1, gun = str(3); burst(x + f * (14 + (MZ[gun] || 36)), y - 24, '#ffe066', 4); parts.push({ x, y: y - 26, vx: -f * 70, vy: -220, l: .7, col: gun == 'boom' ? '#c0392b' : '#d9a441' }); flash.set(n(4), lt) }
+    else if (ty === 'f') { const x = n(0), y = n(1), f = n(2) < 0 ? -1 : 1, gun = str(3); if (gun in GUNS) gunSound(gun, x); burst(x + f * (14 + (MZ[gun] || 36)), y - 24, '#ffe066', 4); parts.push({ x, y: y - 26, vx: -f * 70, vy: -220, l: .7, col: gun == 'boom' ? '#c0392b' : '#d9a441' }); flash.set(n(4), lt) }
     else if (ty === 'p') { const u = n(0), big = !!n(4); if (n(5) || big || !pops.some(o => o.p === u && o.big)) { pops = pops.filter(o => o.p !== u); pops.push({ p: u, x: n(1), y: n(2), l: Math.min(2, n(3)), big, t: str(6).slice(0, 16) }) } }
-    else if (ty === 'bd') bleed(n(0), n(1), n(2), Math.min(40, n(3)));
+    else if (ty === 'bd') { bleed(n(0), n(1), n(2), Math.min(40, n(3))); bloodSound(n(0), n(3)) }
     else if (ty === 'kf') { feed.unshift({ a: n(0), b: n(1), l: 4 }); feed.length = Math.min(feed.length, 3) }
   }
   function view(a, b, k) {
@@ -366,7 +367,7 @@ export function createRenderer(cv: HTMLCanvasElement): Renderer {
     g.save(); g.scale(2 - sq, sq); box(-14, -26, 28, 26, 3, '#c98a3f'); g.fillStyle = 'rgba(60,30,10,.35)'; g.fillRect(-14, -17, 28, 2); g.fillRect(-14, -8, 28, 2); g.fillStyle = '#6b7280'; g.fillRect(-14, -26, 5, 26); g.fillRect(9, -26, 5, 26); g.fillStyle = INK; g.font = '900 17px system-ui'; g.textAlign = 'center'; g.fillText('?', 0, -7); g.restore();
     if (c.landed) label(GUNS[c.gun].name, 0, -34, 13, '#fff'); g.restore();
   }
-  const ORB = 1.8; // skill orb size
+  const ORB = 1.35; // skill orb size
   function orb(s) {
     const a = s.a || 0; if (s.l < 3 && Math.floor(s.l * 6) % 2) return; const k = a < .4 ? a / .4 : 1, pop = a < .4 ? 1 + 2.7 * Math.pow(k - 1, 3) + 1.7 * Math.pow(k - 1, 2) : 1, [nm, col] = SKI[s.k], y = s.y - 32 + Math.sin(t * 3 + s.ph) * 4 - (a < .4 ? (1 - k) * 20 : 0);
     g.save(); g.translate(s.x, s.y); g.scale(ORB, ORB); g.translate(-s.x, -s.y); // drawn larger, anchored on the floor
